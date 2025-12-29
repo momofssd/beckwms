@@ -1,5 +1,6 @@
 import pymongo
 from pymongo import MongoClient
+
 import sys
 import io
 
@@ -10,25 +11,26 @@ def setup_database():
     # 1. Connect to MongoDB
     try:
         client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+        # Test connection
         client.server_info()
         print("✅ Successfully connected to MongoDB.")
     except Exception as e:
         print(f"❌ Could not connect to MongoDB: {e}")
         return
 
+    # 2. Create/Select Database
     db = client["warehouse_db"]
+    
+    # 3. Define Collections
     inventory = db["inventory"]
     transactions = db["transactions"]
 
-    # 4. Clear existing data and indices for a fresh start
-    # We must drop the old index because it was "SKU only"
-    inventory.drop_indexes()
+    # 4. Clear existing data (Optional: only if you want a fresh start)
     inventory.delete_many({})
     transactions.delete_many({})
-    print("🧹 Cleared old data and indices.")
+    print("🧹 Cleared old data.")
 
     # 5. Insert Sample Inventory Data
-    # SKU001 now exists in both Home1 and WHS1
     sample_items = [
         {"sku": "SKU001", "name": "Wireless Mouse", "quantity": 50, "location": "Home1"},
         {"sku": "SKU002", "name": "Mechanical Keyboard", "quantity": 25, "location": "Home2"},
@@ -40,14 +42,12 @@ def setup_database():
     inventory.insert_many(sample_items)
     print(f"📦 Inserted {len(sample_items)} sample items into inventory.")
 
-    # 6. Create COMPOUND INDEX
-    # This allows SKU001 to exist in multiple locations, 
-    # but prevents having two entries for SKU001 in the SAME location.
-    inventory.create_index([("sku", pymongo.ASCENDING), ("location", pymongo.ASCENDING)], unique=True)
-    print("⚡ Created unique compound index on [SKU + Location].")
+    # 6. Create Indexes (This makes searching for SKUs lightning fast)
+    inventory.create_index([("sku", pymongo.ASCENDING)], unique=True)
+    print("⚡ Created unique index on SKU field.")
 
     print("\n--- Setup Complete ---")
-    print("You can now test your WMS app. Scanning SKU001 will now show two location options.")
+    print("You can now test your WMS app with SKU: SKU001")
 
 if __name__ == "__main__":
     setup_database()
