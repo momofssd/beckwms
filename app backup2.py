@@ -7,7 +7,7 @@ import io
 import hashlib
 
 # --- 1. UI CONFIGURATION ---
-st.set_page_config(page_title="Beck's WMS", layout="wide")
+st.set_page_config(page_title="Inv WMS", layout="wide")
 
 # --- 2. DATABASE CONNECTION (Atlas) ---
 @st.cache_resource

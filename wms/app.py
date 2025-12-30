@@ -31,7 +31,7 @@ def render_sidebar() -> None:
 
 
 def run() -> None:
-    st.set_page_config(page_title="Beck's WMS", layout="wide")
+    st.set_page_config(page_title="Inv WMS", layout="wide")
 
     cols = get_collections()
     inventory_col = cols["inventory"]
