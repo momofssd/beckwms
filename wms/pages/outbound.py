@@ -64,15 +64,28 @@ def render(*, inventory_col, transactions_col) -> None:
                 "outbound_qty",
             ]
             df_s = df_s[[c for c in preferred_cols if c in df_s.columns]]
+
+
+            # Make timestamps human-readable for the on-screen table while keeping
+            # the raw datetime in the export.
+            df_display = df_s.copy()
+            if "timestamp" in df_display.columns:
+                df_display["timestamp"] = pd.to_datetime(
+                    df_display["timestamp"], errors="coerce"
+                ).dt.strftime("%Y-%m-%d %H:%M:%S")
             st.download_button(
                 "Export Session Data",
                 data=to_excel(df_s),
                 file_name=f"session_{file_ts}.xlsx",
                 use_container_width=True,
             )
-            # Keep the on-screen table minimal
-            base_cols = [c for c in ["sku", "name", "shipment_id"] if c in df_s.columns]
-            st.table(df_s[base_cols])
+            # Keep the on-screen table minimal (but include timestamp)
+            base_cols = [
+                c
+                for c in ["timestamp", "sku", "name", "shipment_id"]
+                if c in df_display.columns
+            ]
+            st.table(df_display[base_cols])
         else:
             st.caption("No scans in this session.")
 
