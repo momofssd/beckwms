@@ -54,16 +54,26 @@ def render(*, inventory_col, transactions_col) -> None:
         st.subheader("Live Session Log")
         if st.session_state.session_log:
             df_s = pd.DataFrame(st.session_state.session_log)
-            df_s = df_s[
-                ["timestamp", "sku", "shipment_id", "location", "type", "outbound_qty"]
+            # Include optional columns like `name` if present (older logs may not have it)
+            preferred_cols = [
+                "timestamp",
+                "sku",
+                "name",
+                "shipment_id",
+                "location",
+                "type",
+                "outbound_qty",
             ]
+            df_s = df_s[[c for c in preferred_cols if c in df_s.columns]]
             st.download_button(
                 "Export Session Data",
                 data=to_excel(df_s),
                 file_name=f"session_{file_ts}.xlsx",
                 use_container_width=True,
             )
-            st.table(df_s[["sku", "shipment_id"]])
+            # Keep the on-screen table minimal
+            base_cols = [c for c in ["sku", "name", "shipment_id"] if c in df_s.columns]
+            st.table(df_s[base_cols])
         else:
             st.caption("No scans in this session.")
 
@@ -77,6 +87,7 @@ def render(*, inventory_col, transactions_col) -> None:
         cols = [
             "timestamp",
             "sku",
+            "name",
             "location",
             "type",
             "shipment_id",
@@ -102,4 +113,3 @@ def render(*, inventory_col, transactions_col) -> None:
             use_container_width=True,
         )
         st.dataframe(df_inv, use_container_width=True)
-
