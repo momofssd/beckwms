@@ -19,10 +19,10 @@ def render_sidebar() -> None:
 
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):
         st.session_state.page = "home"
-    if st.sidebar.button("Outbound Processing", use_container_width=True):
-        st.session_state.page = "outbound"
     if st.sidebar.button("Inbound Entry", use_container_width=True):
         st.session_state.page = "inbound"
+    if st.sidebar.button("Outbound Processing", use_container_width=True):
+        st.session_state.page = "outbound"
 
     st.sidebar.divider()
     if st.sidebar.button("Logout", use_container_width=True):
@@ -50,4 +50,3 @@ def run() -> None:
         inbound_page.render(
             inventory_col=inventory_col, transactions_col=transactions_col
         )
-
