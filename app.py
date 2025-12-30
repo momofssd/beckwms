@@ -49,7 +49,7 @@ def hash_pass(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def login_ui():
-    _, center_col, _ = st.columns([1, 2, 1]) # Standardized width for login
+    _, center_col, _ = st.columns([1, 2, 1])
     with center_col:
         st.title("WMS System Login")
         with st.form("login_form"):
@@ -163,7 +163,6 @@ elif st.session_state.page == "outbound":
         st.session_state.last_msg = (None, None)
         st.rerun()
     
-    # --- 2-COLUMN LAYOUT RESTORED ---
     col_left, col_right = st.columns([1, 1], gap="large")
     with col_left:
         st.subheader("Scan Terminal")
@@ -190,11 +189,18 @@ elif st.session_state.page == "outbound":
             st.table(df_s[['sku', 'shipment_id']])
         else: st.caption("No scans in this session.")
 
-    # --- GLOBAL DASHBOARD BELOW TERMINAL ---
+    # --- GLOBAL DASHBOARD WITH RESTORED EXPORT BUTTONS ---
     st.divider()
     inv_h, btn_tx, btn_stk = st.columns([2, 1, 1])
     inv_h.subheader("Global Inventory Dashboard")
     
+    # Export Global Transactions Button
+    all_tx = list(transactions_col.find({}, {"_id": 0}))
+    if all_tx:
+        df_all_tx = pd.DataFrame(all_tx)
+        btn_tx.download_button("Export Transactions", data=to_excel(df_all_tx), file_name=f"all_transactions_{file_ts}.xlsx", use_container_width=True)
+    
+    # Export Current Stock Button
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
     if inventory_data:
         df_inv = pd.DataFrame(inventory_data)
