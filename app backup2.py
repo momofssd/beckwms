@@ -75,9 +75,8 @@ def auto_focus_js():
 
 def to_excel(df):
     output = io.BytesIO()
-    # Explicitly set header=True to ensure column names are included
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, header=True, sheet_name='Sheet1')
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
 def process_scan():
@@ -186,20 +185,22 @@ elif st.session_state.page == "outbound":
         st.subheader("Live Session Log")
         if st.session_state.session_log:
             df_s = pd.DataFrame(st.session_state.session_log)
-            # Ensure headers match dictionary keys
             st.download_button("Export Session Data", data=to_excel(df_s), file_name=f"session_{file_ts}.xlsx", use_container_width=True)
             st.table(df_s[['sku', 'shipment_id']])
         else: st.caption("No scans in this session.")
 
+    # --- GLOBAL DASHBOARD WITH RESTORED EXPORT BUTTONS ---
     st.divider()
     inv_h, btn_tx, btn_stk = st.columns([2, 1, 1])
     inv_h.subheader("Global Inventory Dashboard")
     
+    # Export Global Transactions Button
     all_tx = list(transactions_col.find({}, {"_id": 0}))
     if all_tx:
         df_all_tx = pd.DataFrame(all_tx)
         btn_tx.download_button("Export Transactions", data=to_excel(df_all_tx), file_name=f"all_transactions_{file_ts}.xlsx", use_container_width=True)
     
+    # Export Current Stock Button
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
     if inventory_data:
         df_inv = pd.DataFrame(inventory_data)
@@ -209,8 +210,6 @@ elif st.session_state.page == "outbound":
 # INBOUND ENTRY
 elif st.session_state.page == "inbound":
     st.title("Inbound Entry")
-    
-    # --- Inbound Form ---
     with st.form("inbound_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         sku = c1.text_input("SKU").upper()
@@ -221,14 +220,3 @@ elif st.session_state.page == "inbound":
             inventory_col.update_one({"sku": sku, "location": loc}, {"$set": {"name": name}, "$inc": {"quantity": int(qty)}}, upsert=True)
             transactions_col.insert_one({"timestamp": datetime.now(), "sku": sku, "location": loc, "type": "inbound", "inbound_qty": int(qty)})
             st.success(f"Entry Successful: {qty} units of {sku}")
-            st.rerun()
-
-    # --- DISPLAY CURRENT INVENTORY IN INBOUND UI ---
-    st.divider()
-    st.subheader("Current Inventory Status")
-    inventory_data = list(inventory_col.find({}, {"_id": 0}))
-    if inventory_data:
-        df_inv_inbound = pd.DataFrame(inventory_data)
-        st.dataframe(df_inv_inbound, use_container_width=True)
-    else:
-        st.info("Inventory is currently empty.")
