@@ -4,68 +4,34 @@ from pymongo import MongoClient
 from datetime import datetime
 import pandas as pd
 import io
-import hashlib  # Added for password hashing
 
 # --- 1. UI CONFIGURATION ---
 st.set_page_config(page_title="Inv WMS", layout="wide")
 
-# --- 2. DATABASE CONNECTION (Atlas) ---
+# --- 2.  DATABASE CONNECTION ---
 @st.cache_resource
 def init_connection():
     try:
         uri = st.secrets["mongo_uri"]
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        client.admin.command('ping') 
+        client.server_info() 
         return client
     except Exception as e:
-        st.error("Connection Error: Could not connect to MongoDB Atlas.")
+        st.error("Connection Error: Local MongoDB not detected. Please ensure MongoDB service is running.")
         st.stop()
         return None
 
 client = init_connection()
-db = client["warehouse_db"]
-inventory_col = db["inventory"]
-transactions_col = db["transactions"]
-users_col = db["users"]  # Added users collection reference
+if client:
+    db = client["warehouse_db"]
+    inventory_col = db["inventory"]
+    transactions_col = db["transactions"]
+    st.sidebar.info("System Status: Connected to DB Server")
+else:
+    st.stop()
 
-# --- 3. SESSION STATE & AUTH LOGIC ---
-# Combined all keys into one initialization loop
-for key in ["scan_pair", "session_log", "page", "last_msg", "authenticated", "user_role", "username"]:
-    if key not in st.session_state:
-        if key == "authenticated":
-            st.session_state[key] = False
-        elif key in ["scan_pair", "session_log"]:
-            st.session_state[key] = []
-        elif key == "page":
-            st.session_state[key] = "outbound"
-        else:
-            st.session_state[key] = None
 
-def hash_pass(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def login_ui():
-    st.title("WMS System Login")
-    with st.form("login_form"):
-        user = st.text_input("Username")
-        pw = st.text_input("Password", type="password")
-        if st.form_submit_button("Login", use_container_width=True):
-            # Query Atlas for the user
-            user_data = users_col.find_one({"username": user, "password": hash_pass(pw)})
-            if user_data:
-                st.session_state.authenticated = True
-                st.session_state.user_role = user_data["role"]
-                st.session_state.username = user_data["username"]
-                st.rerun()
-            else:
-                st.error("Invalid credentials.")
-
-# --- THE GATEKEEPER ---
-if not st.session_state.authenticated:
-    login_ui()
-    st.stop() # Prevents the rest of the app from loading until logged in
-
-# --- 4. HELPER FUNCTIONS (No changes) ---
+# --- 3. HELPER FUNCTIONS ---
 def auto_focus_js():
     components.html("<script>function setFocus(){const input=window.parent.document.querySelector('input[aria-label=\"SCAN_ZONE\"]');if(input&&window.parent.document.activeElement!==input){input.focus();}}setInterval(setFocus,300);setTimeout(setFocus,100);</script>", height=0)
 
@@ -103,18 +69,16 @@ def process_scan():
             st.session_state.scan_pair = []
         st.session_state.main_scanner = ""
 
-# --- 5. NAVIGATION & SIDEBAR ---
-st.sidebar.title(f"Welcome, {st.session_state.username}")
-st.sidebar.caption(f"Role: {st.session_state.user_role.upper()}")
-st.sidebar.divider()
+# --- 4. SESSION STATE INITIALIZATION ---
+for key in ["scan_pair", "session_log", "page", "last_msg"]:
+    if key not in st.session_state: 
+        st.session_state[key] = [] if "log" in key or "pair" in key else "outbound" if "page" in key else (None, None)
 
+# --- 5. NAVIGATION ---
+st.sidebar.title("WMS Navigation")
 if st.sidebar.button("Inventory Dashboard", use_container_width=True): st.session_state.page = "home"
 if st.sidebar.button("Outbound Processing", use_container_width=True): st.session_state.page = "outbound"
 if st.sidebar.button("Inbound Entry", use_container_width=True): st.session_state.page = "inbound"
-
-if st.sidebar.button("Logout", use_container_width=True, type="secondary"):
-    st.session_state.authenticated = False
-    st.rerun()
 
 # --- 6. PAGE CONTENT ---
 file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -124,26 +88,22 @@ if st.session_state.page == "home":
     raw_data = list(inventory_col.find())
     if raw_data:
         df_display = pd.DataFrame(raw_data)
+        st.subheader("Inventory Editor")
+        edited_data = st.data_editor(df_display, column_config={"_id": None}, num_rows="dynamic", use_container_width=True, key="inventory_table")
         
-        # Admin-only Editor logic
-        if st.session_state.user_role == "admin":
-            st.subheader("Inventory Editor (Admin Access)")
-            edited_data = st.data_editor(df_display, column_config={"_id": None}, num_rows="dynamic", use_container_width=True, key="inventory_table")
-            if st.button("Apply Changes and Sync Database", type="primary"):
-                state = st.session_state.inventory_table
-                for row_idx in state.get("deleted_rows", []): inventory_col.delete_one({"_id": df_display.iloc[row_idx]["_id"]})
-                for row_idx_str, changes in state.get("edited_rows", {}).items():
-                    row_idx = int(row_idx_str)
-                    doc_id = df_display.iloc[row_idx]["_id"]
-                    current_row = df_display.iloc[row_idx].to_dict()
-                    updated_values = {"sku": str(changes.get("sku", current_row["sku"])).strip().upper(), "name": str(changes.get("name", current_row["name"])).strip().upper(), "location": str(changes.get("location", current_row["location"])).strip().upper(), "quantity": int(changes.get("quantity", current_row["quantity"]))}
-                    inventory_col.update_one({"_id": doc_id}, {"$set": updated_values})
-                for row in state.get("added_rows", []): inventory_col.insert_one({"sku": str(row.get("sku", "")).strip().upper(), "name": str(row.get("name", "")).strip().upper(), "location": str(row.get("location", "")).strip().upper(), "quantity": int(row.get("quantity", 0))})
-                st.success("Database synchronized.")
-                st.rerun()
-        else:
-            st.subheader("Inventory (View Only)")
-            st.dataframe(df_display.drop(columns=["_id"]), use_container_width=True)
+        # Standard width button (no use_container_width)
+        if st.button("Apply Changes and Sync Database", type="primary"):
+            state = st.session_state.inventory_table
+            for row_idx in state.get("deleted_rows", []): inventory_col.delete_one({"_id": df_display.iloc[row_idx]["_id"]})
+            for row_idx_str, changes in state.get("edited_rows", {}).items():
+                row_idx = int(row_idx_str)
+                doc_id = df_display.iloc[row_idx]["_id"]
+                current_row = df_display.iloc[row_idx].to_dict()
+                updated_values = {"sku": str(changes.get("sku", current_row["sku"])).strip().upper(), "name": str(changes.get("name", current_row["name"])).strip().upper(), "location": str(changes.get("location", current_row["location"])).strip().upper(), "quantity": int(changes.get("quantity", current_row["quantity"]))}
+                inventory_col.update_one({"_id": doc_id}, {"$set": updated_values})
+            for row in state.get("added_rows", []): inventory_col.insert_one({"sku": str(row.get("sku", "")).strip().upper(), "name": str(row.get("name", "")).strip().upper(), "location": str(row.get("location", "")).strip().upper(), "quantity": int(row.get("quantity", 0))})
+            st.success("Database synchronized successfully.")
+            st.rerun()
     else: st.info("Inventory database is currently empty.")
 
 elif st.session_state.page == "outbound":
@@ -185,7 +145,8 @@ elif st.session_state.page == "outbound":
     all_tx = list(transactions_col.find({"type": "outbound"}, {"_id": 0}))
     if all_tx:
         df_all = pd.DataFrame(all_tx)
-        btn_tx.download_button("Export Global Transactions", data=to_excel(df_all), file_name=f"all_tx_{file_ts}.xlsx", use_container_width=True)
+        order_all = ["shipment_id", "sku", "location", "type", "timestamp", "outbound_qty"]
+        btn_tx.download_button("Export Global Transactions", data=to_excel(df_all[order_all]), file_name=f"all_tx_{file_ts}.xlsx", use_container_width=True)
     
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
     if inventory_data:
