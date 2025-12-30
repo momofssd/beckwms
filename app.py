@@ -28,7 +28,7 @@ inventory_col = db["inventory"]
 transactions_col = db["transactions"]
 users_col = db["users"]
 
-# --- 3. SESSION STATE INITIALIZATION (Fixed for Unpacking) ---
+# --- 3. SESSION STATE INITIALIZATION ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_role" not in st.session_state:
@@ -42,14 +42,14 @@ if "scan_pair" not in st.session_state:
 if "session_log" not in st.session_state:
     st.session_state.session_log = []
 if "last_msg" not in st.session_state:
-    st.session_state.last_msg = (None, None) # Always initialize as a tuple
+    st.session_state.last_msg = (None, None)
 
 # --- 4. AUTHENTICATION HELPERS ---
 def hash_pass(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def login_ui():
-    _, center_col, _ = st.columns([1, 1.5, 1])
+    _, center_col, _ = st.columns([1, 2, 1]) # Standardized width for login
     with center_col:
         st.title("WMS System Login")
         with st.form("login_form"):
@@ -107,23 +107,23 @@ def process_scan():
         st.session_state.main_scanner = ""
 
 # --- 6. NAVIGATION SIDEBAR ---
-st.sidebar.title(f"User: {st.session_state.username}")
-st.sidebar.info(f"Access Level: {st.session_state.user_role.upper() if st.session_state.user_role else ''}")
+st.sidebar.title(f"Welcome, {st.session_state.username}")
+st.sidebar.caption(f"Role: {st.session_state.user_role.upper() if st.session_state.user_role else ''}")
 st.sidebar.divider()
 
+if st.sidebar.button("Inventory Dashboard", use_container_width=True): st.session_state.page = "home"
 if st.sidebar.button("Outbound Processing", use_container_width=True): st.session_state.page = "outbound"
 if st.sidebar.button("Inbound Entry", use_container_width=True): st.session_state.page = "inbound"
-if st.sidebar.button("Inventory Dashboard", use_container_width=True): st.session_state.page = "home"
 
 st.sidebar.divider()
-if st.sidebar.button("Logout", use_container_width=True, type="secondary"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
+if st.sidebar.button("Logout", use_container_width=True):
+    st.session_state.authenticated = False
     st.rerun()
 
 # --- 7. PAGES ---
 file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+# INVENTORY DASHBOARD
 if st.session_state.page == "home":
     st.title("Inventory Management")
     raw_data = list(inventory_col.find())
@@ -147,19 +147,14 @@ if st.session_state.page == "home":
                     }
                     inventory_col.update_one({"_id": doc_id}, {"$set": updated_values})
                 for row in state.get("added_rows", []):
-                    inventory_col.insert_one({
-                        "sku": str(row.get("sku", "")).strip().upper(),
-                        "name": str(row.get("name", "")).strip().upper(),
-                        "location": str(row.get("location", "")).strip().upper(),
-                        "quantity": int(row.get("quantity", 0))
-                    })
-                st.success("Database synchronized successfully.")
+                    inventory_col.insert_one({"sku": row.get("sku", "").upper(), "name": row.get("name", "").upper(), "location": row.get("location", "").upper(), "quantity": int(row.get("quantity", 0))})
+                st.success("Database synchronized.")
                 st.rerun()
         else:
             st.subheader("Stock Levels (View Only)")
             st.dataframe(df_display.drop(columns=["_id"]), use_container_width=True)
-    else: st.info("Inventory database is empty.")
 
+# OUTBOUND TERMINAL
 elif st.session_state.page == "outbound":
     head_l, head_r = st.columns([3, 1])
     head_l.title("Outbound Terminal")
@@ -168,6 +163,7 @@ elif st.session_state.page == "outbound":
         st.session_state.last_msg = (None, None)
         st.rerun()
     
+    # --- 2-COLUMN LAYOUT RESTORED ---
     col_left, col_right = st.columns([1, 1], gap="large")
     with col_left:
         st.subheader("Scan Terminal")
@@ -175,8 +171,6 @@ elif st.session_state.page == "outbound":
         st.session_state.current_loc = st.selectbox("Select Station Location", options=all_locs, index=None)
         if st.session_state.current_loc:
             st.divider()
-            
-            # --- FIXED UNPACKING LOGIC ---
             msg_data = st.session_state.get("last_msg", (None, None))
             if isinstance(msg_data, tuple) and len(msg_data) == 2:
                 msg_t, msg_x = msg_data
@@ -192,11 +186,22 @@ elif st.session_state.page == "outbound":
         st.subheader("Live Session Log")
         if st.session_state.session_log:
             df_s = pd.DataFrame(st.session_state.session_log)
-            order = ["shipment_id", "sku", "location", "type", "timestamp", "outbound_qty"]
-            st.download_button("Export Session Data", data=to_excel(df_s[order]), file_name=f"session_{file_ts}.xlsx", use_container_width=True)
+            st.download_button("Export Session Data", data=to_excel(df_s), file_name=f"session_{file_ts}.xlsx", use_container_width=True)
             st.table(df_s[['sku', 'shipment_id']])
         else: st.caption("No scans in this session.")
 
+    # --- GLOBAL DASHBOARD BELOW TERMINAL ---
+    st.divider()
+    inv_h, btn_tx, btn_stk = st.columns([2, 1, 1])
+    inv_h.subheader("Global Inventory Dashboard")
+    
+    inventory_data = list(inventory_col.find({}, {"_id": 0}))
+    if inventory_data:
+        df_inv = pd.DataFrame(inventory_data)
+        btn_stk.download_button("Export Current Stock", data=to_excel(df_inv), file_name=f"inventory_{file_ts}.xlsx", use_container_width=True)
+        st.dataframe(df_inv, use_container_width=True)
+
+# INBOUND ENTRY
 elif st.session_state.page == "inbound":
     st.title("Inbound Entry")
     with st.form("inbound_form", clear_on_submit=True):
