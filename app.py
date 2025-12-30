@@ -104,7 +104,7 @@ def process_scan():
         st.session_state.main_scanner = ""
 
 # --- 4. SESSION STATE INIT ---
-st.set_page_config(page_title="Beck's High-Speed WMS", layout="wide")
+st.set_page_config(page_title="Inventory WMS", layout="wide")
 
 if "scan_pair" not in st.session_state: st.session_state.scan_pair = [] 
 if "session_log" not in st.session_state: st.session_state.session_log = [] 
