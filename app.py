@@ -4,7 +4,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import pandas as pd
 import io
-import hashlib  # Added for password hashing
+import hashlib
 
 # --- 1. UI CONFIGURATION ---
 st.set_page_config(page_title="Inv WMS", layout="wide")
@@ -13,12 +13,15 @@ st.set_page_config(page_title="Inv WMS", layout="wide")
 @st.cache_resource
 def init_connection():
     try:
+        # Uses the mongo_uri defined in your .streamlit/secrets.toml
         uri = st.secrets["mongo_uri"]
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        # Verify connection
         client.admin.command('ping') 
         return client
     except Exception as e:
-        st.error("Connection Error: Could not connect to MongoDB Atlas.")
+        st.error("Connection Error: Could not connect to MongoDB Atlas cluster.")
+        st.info("Ensure your IP is whitelisted in Atlas and secrets.toml is correct.")
         st.stop()
         return None
 
@@ -26,10 +29,9 @@ client = init_connection()
 db = client["warehouse_db"]
 inventory_col = db["inventory"]
 transactions_col = db["transactions"]
-users_col = db["users"]  # Added users collection reference
+users_col = db["users"]
 
-# --- 3. SESSION STATE & AUTH LOGIC ---
-# Combined all keys into one initialization loop
+# --- 3. SESSION STATE INITIALIZATION ---
 for key in ["scan_pair", "session_log", "page", "last_msg", "authenticated", "user_role", "username"]:
     if key not in st.session_state:
         if key == "authenticated":
@@ -41,31 +43,36 @@ for key in ["scan_pair", "session_log", "page", "last_msg", "authenticated", "us
         else:
             st.session_state[key] = None
 
+# --- 4. AUTHENTICATION HELPERS ---
 def hash_pass(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def login_ui():
-    st.title("WMS System Login")
-    with st.form("login_form"):
-        user = st.text_input("Username")
-        pw = st.text_input("Password", type="password")
-        if st.form_submit_button("Login", use_container_width=True):
-            # Query Atlas for the user
-            user_data = users_col.find_one({"username": user, "password": hash_pass(pw)})
-            if user_data:
-                st.session_state.authenticated = True
-                st.session_state.user_role = user_data["role"]
-                st.session_state.username = user_data["username"]
-                st.rerun()
-            else:
-                st.error("Invalid credentials.")
+    # Centering the login form using columns
+    _, center_col, _ = st.columns([1, 1.5, 1])
+    
+    with center_col:
+        st.title("WMS System Login")
+        with st.form("login_form"):
+            user = st.text_input("Username")
+            pw = st.text_input("Password", type="password")
+            if st.form_submit_button("Login", use_container_width=True):
+                # Query Atlas users collection
+                user_data = users_col.find_one({"username": user, "password": hash_pass(pw)})
+                if user_data:
+                    st.session_state.authenticated = True
+                    st.session_state.user_role = user_data["role"]
+                    st.session_state.username = user_data["username"]
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials.")
 
-# --- THE GATEKEEPER ---
+# --- GATEKEEPER ---
 if not st.session_state.authenticated:
     login_ui()
-    st.stop() # Prevents the rest of the app from loading until logged in
+    st.stop()
 
-# --- 4. HELPER FUNCTIONS (No changes) ---
+# --- 5. LOGIC HELPERS ---
 def auto_focus_js():
     components.html("<script>function setFocus(){const input=window.parent.document.querySelector('input[aria-label=\"SCAN_ZONE\"]');if(input&&window.parent.document.activeElement!==input){input.focus();}}setInterval(setFocus,300);setTimeout(setFocus,100);</script>", height=0)
 
@@ -80,55 +87,58 @@ def process_scan():
     if scan_val:
         st.session_state.scan_pair.append(scan_val.strip().upper())
         if len(st.session_state.scan_pair) == 2:
-            sku_found = st.session_state.scan_pair[0]
-            tracking_found = st.session_state.scan_pair[1]
-            selected_loc = st.session_state.current_loc
+            sku, tracking = st.session_state.scan_pair[0], st.session_state.scan_pair[1]
+            loc = st.session_state.current_loc
             ts = datetime.now()
             
-            existing_tx = transactions_col.find_one({"shipment_id": tracking_found})
+            # Check for duplicate tracking/replacement logic
+            existing_tx = transactions_col.find_one({"shipment_id": tracking})
             if existing_tx:
                 inventory_col.update_one({"sku": existing_tx["sku"], "location": existing_tx["location"]}, {"$inc": {"quantity": 1}})
                 transactions_col.delete_one({"_id": existing_tx["_id"]})
-                st.session_state.session_log = [log for log in st.session_state.session_log if log['shipment_id'] != tracking_found]
-                st.toast(f"Tracking {tracking_found} replaced.")
+                st.session_state.session_log = [l for l in st.session_state.session_log if l['shipment_id'] != tracking]
+                st.toast(f"Tracking {tracking} replaced.")
 
-            update_res = inventory_col.update_one({"sku": sku_found, "location": selected_loc, "quantity": {"$gt": 0}}, {"$inc": {"quantity": -1}})
-            if update_res.modified_count > 0:
-                new_entry = {"timestamp": ts, "sku": sku_found, "shipment_id": tracking_found, "location": selected_loc, "type": "outbound", "outbound_qty": 1}
-                transactions_col.insert_one(new_entry.copy())
-                st.session_state.session_log.insert(0, new_entry)
-                st.session_state.last_msg = ("success", f"Processed: {sku_found}")
+            # Process outbound decrement
+            res = inventory_col.update_one({"sku": sku, "location": loc, "quantity": {"$gt": 0}}, {"$inc": {"quantity": -1}})
+            if res.modified_count > 0:
+                entry = {"timestamp": ts, "sku": sku, "shipment_id": tracking, "location": loc, "type": "outbound", "outbound_qty": 1}
+                transactions_col.insert_one(entry.copy())
+                st.session_state.session_log.insert(0, entry)
+                st.session_state.last_msg = ("success", f"Processed: {sku}")
             else:
-                st.session_state.last_msg = ("error", f"Error: {sku_found} out of stock at {selected_loc}")
+                st.session_state.last_msg = ("error", f"Error: {sku} out of stock at {loc}")
             st.session_state.scan_pair = []
         st.session_state.main_scanner = ""
 
-# --- 5. NAVIGATION & SIDEBAR ---
-st.sidebar.title(f"Welcome, {st.session_state.username}")
-st.sidebar.caption(f"Role: {st.session_state.user_role.upper()}")
+# --- 6. NAVIGATION SIDEBAR ---
+st.sidebar.title(f"User: {st.session_state.username}")
+st.sidebar.info(f"Access Level: {st.session_state.user_role.upper()}")
 st.sidebar.divider()
 
-if st.sidebar.button("Inventory Dashboard", use_container_width=True): st.session_state.page = "home"
 if st.sidebar.button("Outbound Processing", use_container_width=True): st.session_state.page = "outbound"
 if st.sidebar.button("Inbound Entry", use_container_width=True): st.session_state.page = "inbound"
+if st.sidebar.button("Inventory Dashboard", use_container_width=True): st.session_state.page = "home"
 
+st.sidebar.divider()
 if st.sidebar.button("Logout", use_container_width=True, type="secondary"):
     st.session_state.authenticated = False
     st.rerun()
 
-# --- 6. PAGE CONTENT ---
+# --- 7. PAGES ---
 file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+# INVENTORY DASHBOARD
 if st.session_state.page == "home":
     st.title("Inventory Management")
     raw_data = list(inventory_col.find())
     if raw_data:
         df_display = pd.DataFrame(raw_data)
         
-        # Admin-only Editor logic
         if st.session_state.user_role == "admin":
-            st.subheader("Inventory Editor (Admin Access)")
+            st.subheader("Inventory Editor (Admin Only)")
             edited_data = st.data_editor(df_display, column_config={"_id": None}, num_rows="dynamic", use_container_width=True, key="inventory_table")
+            
             if st.button("Apply Changes and Sync Database", type="primary"):
                 state = st.session_state.inventory_table
                 for row_idx in state.get("deleted_rows", []): inventory_col.delete_one({"_id": df_display.iloc[row_idx]["_id"]})
@@ -136,16 +146,28 @@ if st.session_state.page == "home":
                     row_idx = int(row_idx_str)
                     doc_id = df_display.iloc[row_idx]["_id"]
                     current_row = df_display.iloc[row_idx].to_dict()
-                    updated_values = {"sku": str(changes.get("sku", current_row["sku"])).strip().upper(), "name": str(changes.get("name", current_row["name"])).strip().upper(), "location": str(changes.get("location", current_row["location"])).strip().upper(), "quantity": int(changes.get("quantity", current_row["quantity"]))}
+                    updated_values = {
+                        "sku": str(changes.get("sku", current_row["sku"])).strip().upper(),
+                        "name": str(changes.get("name", current_row["name"])).strip().upper(),
+                        "location": str(changes.get("location", current_row["location"])).strip().upper(),
+                        "quantity": int(changes.get("quantity", current_row["quantity"]))
+                    }
                     inventory_col.update_one({"_id": doc_id}, {"$set": updated_values})
-                for row in state.get("added_rows", []): inventory_col.insert_one({"sku": str(row.get("sku", "")).strip().upper(), "name": str(row.get("name", "")).strip().upper(), "location": str(row.get("location", "")).strip().upper(), "quantity": int(row.get("quantity", 0))})
-                st.success("Database synchronized.")
+                for row in state.get("added_rows", []):
+                    inventory_col.insert_one({
+                        "sku": str(row.get("sku", "")).strip().upper(),
+                        "name": str(row.get("name", "")).strip().upper(),
+                        "location": str(row.get("location", "")).strip().upper(),
+                        "quantity": int(row.get("quantity", 0))
+                    })
+                st.success("Database synchronized successfully.")
                 st.rerun()
         else:
-            st.subheader("Inventory (View Only)")
+            st.subheader("Stock Levels (View Only)")
             st.dataframe(df_display.drop(columns=["_id"]), use_container_width=True)
-    else: st.info("Inventory database is currently empty.")
+    else: st.info("Inventory database is empty.")
 
+# OUTBOUND TERMINAL
 elif st.session_state.page == "outbound":
     head_l, head_r = st.columns([3, 1])
     head_l.title("Outbound Terminal")
@@ -178,21 +200,7 @@ elif st.session_state.page == "outbound":
             st.table(df_s[['sku', 'shipment_id']])
         else: st.caption("No scans in this session.")
 
-    st.divider()
-    inv_h, btn_tx, btn_stk = st.columns([2, 1, 1])
-    inv_h.subheader("Global Inventory Dashboard")
-    
-    all_tx = list(transactions_col.find({"type": "outbound"}, {"_id": 0}))
-    if all_tx:
-        df_all = pd.DataFrame(all_tx)
-        btn_tx.download_button("Export Global Transactions", data=to_excel(df_all), file_name=f"all_tx_{file_ts}.xlsx", use_container_width=True)
-    
-    inventory_data = list(inventory_col.find({}, {"_id": 0}))
-    if inventory_data:
-        df_inv = pd.DataFrame(inventory_data)
-        btn_stk.download_button("Export Current Stock", data=to_excel(df_inv), file_name=f"inventory_{file_ts}.xlsx", use_container_width=True)
-        st.dataframe(df_inv, use_container_width=True)
-
+# INBOUND ENTRY
 elif st.session_state.page == "inbound":
     st.title("Inbound Entry")
     with st.form("inbound_form", clear_on_submit=True):
