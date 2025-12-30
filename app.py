@@ -7,10 +7,11 @@ import io
 
 # --- 1. DATABASE CONNECTION (Atlas Cloud Ready) ---
 @st.cache_resource
+# Simplified Connection Logic
 def init_connection():
     try:
-        # Retrieves URI from Streamlit Cloud Secrets
-        uri = st.secrets["mongo"]["uri"]
+        # Looking for a single top-level key
+        uri = st.secrets["mongo_uri"] 
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         return client
     except Exception as e:
