@@ -5,14 +5,13 @@ from datetime import datetime
 import pandas as pd
 import io
 
-# --- 1. DATABASE CONNECTION (Atlas Cloud Ready) ---
+# --- 1. DATABASE CONNECTION ---
 @st.cache_resource
-# Simplified Connection Logic
 def init_connection():
     try:
-        # Looking for a single top-level key
-        uri = st.secrets["mongo_uri"] 
+        uri = st.secrets["mongo_uri"]
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        client.admin.command('ping') # Verify connection
         return client
     except Exception as e:
         st.error(f"⚠️ Connection failed: {e}")
@@ -26,26 +25,10 @@ if client:
 else:
     st.stop()
 
-# --- 2. AUTO-FOCUS JAVASCRIPT ---
+# --- 2. HELPERS & JS ---
 def auto_focus_js():
-    """Forces cursor back to scan zone for hands-free operation."""
-    components.html(
-        """
-        <script>
-            function setFocus() {
-                const input = window.parent.document.querySelector('input[aria-label="SCAN_ZONE"]');
-                if (input && window.parent.document.activeElement !== input) {
-                    input.focus();
-                }
-            }
-            setInterval(setFocus, 300); 
-            setTimeout(setFocus, 100);
-        </script>
-        """,
-        height=0,
-    )
+    components.html("<script>function setFocus(){const input=window.parent.document.querySelector('input[aria-label=\"SCAN_ZONE\"]');if(input&&window.parent.document.activeElement!==input){input.focus();}}setInterval(setFocus,300);setTimeout(setFocus,100);</script>", height=0)
 
-# --- 3. HELPER FUNCTIONS ---
 def to_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -53,148 +36,95 @@ def to_excel(df):
     return output.getvalue()
 
 def process_scan():
-    """Handles logic for Outbound scans with session isolation and uppercase conversion."""
     scan_val = st.session_state.main_scanner
-    
     if scan_val:
-        # Convert all scans to UPPERCASE immediately
         st.session_state.scan_pair.append(scan_val.strip().upper())
-        
         if len(st.session_state.scan_pair) == 2:
-            sku_found = st.session_state.scan_pair[0]
-            tracking_found = st.session_state.scan_pair[1]
-            selected_loc = st.session_state.current_loc
+            sku, tracking = st.session_state.scan_pair[0], st.session_state.scan_pair[1]
+            loc = st.session_state.current_loc
             ts = datetime.now()
             
-            # DUPLICATE HANDLING (Shared DB Check)
-            existing_tx = transactions_col.find_one({"shipment_id": tracking_found})
-            if existing_tx:
-                inventory_col.update_one(
-                    {"sku": existing_tx["sku"], "location": existing_tx["location"]},
-                    {"$inc": {"quantity": 1}}
-                )
-                transactions_col.delete_one({"_id": existing_tx["_id"]})
-                # Update current user's session log display
-                st.session_state.session_log = [log for log in st.session_state.session_log if log['shipment_id'] != tracking_found]
-                st.toast(f"🔄 Duplicate tracking replaced.", icon="⚠️")
+            # Duplicate/Replacement Logic
+            existing = transactions_col.find_one({"shipment_id": tracking})
+            if existing:
+                inventory_col.update_one({"sku": existing["sku"], "location": existing["location"]}, {"$inc": {"quantity": 1}})
+                transactions_col.delete_one({"_id": existing["_id"]})
+                st.session_state.session_log = [l for l in st.session_state.session_log if l['shipment_id'] != tracking]
+                st.toast(f"🔄 Tracking {tracking} replaced.", icon="⚠️")
 
-            # PROCESS TRANSACTION
-            update_res = inventory_col.update_one(
-                {"sku": sku_found, "location": selected_loc, "quantity": {"$gt": 0}},
-                {"$inc": {"quantity": -1}}
-            )
-
-            if update_res.modified_count > 0:
-                new_entry = {
-                    "timestamp": ts,
-                    "sku": sku_found,
-                    "shipment_id": tracking_found,
-                    "location": selected_loc,
-                    "type": "outbound",
-                    "outbound_qty": 1
-                }
-                transactions_col.insert_one(new_entry.copy())
-                st.session_state.session_log.insert(0, new_entry)
-                st.session_state.last_msg = ("success", f"✅ Shipped: {sku_found}")
+            # Finalize Transaction
+            res = inventory_col.update_one({"sku": sku, "location": loc, "quantity": {"$gt": 0}}, {"$inc": {"quantity": -1}})
+            if res.modified_count > 0:
+                entry = {"timestamp": ts, "sku": sku, "shipment_id": tracking, "location": loc, "type": "outbound", "outbound_qty": 1}
+                transactions_col.insert_one(entry.copy())
+                st.session_state.session_log.insert(0, entry)
+                st.session_state.last_msg = ("success", f"✅ Shipped: {sku}")
             else:
-                st.session_state.last_msg = ("error", f"❌ Error: {sku_found} out of stock.")
-            
+                st.session_state.last_msg = ("error", f"❌ Error: {sku} out of stock.")
             st.session_state.scan_pair = []
-        
         st.session_state.main_scanner = ""
 
-# --- 4. SESSION STATE INIT ---
-st.set_page_config(page_title="Inventory WMS", layout="wide")
+# --- 3. UI CONFIG ---
+st.set_page_config(page_title="Beck's Cloud WMS", layout="wide")
+for key in ["scan_pair", "session_log", "page", "last_msg"]:
+    if key not in st.session_state: 
+        st.session_state[key] = [] if "log" in key or "pair" in key else "outbound" if "page" in key else (None, None)
 
-if "scan_pair" not in st.session_state: st.session_state.scan_pair = [] 
-if "session_log" not in st.session_state: st.session_state.session_log = [] 
-if "page" not in st.session_state: st.session_state.page = "outbound"
-if "last_msg" not in st.session_state: st.session_state.last_msg = (None, None)
+# --- 4. NAVIGATION ---
+st.sidebar.title("Beck's WMS")
+if st.sidebar.button("🏠 Inventory Home"): st.session_state.page = "home"
+if st.sidebar.button("📤 Outbound Scan"): st.session_state.page = "outbound"
+if st.sidebar.button("📥 Inbound Entry"): st.session_state.page = "inbound"
 
-# --- 5. SIDEBAR NAVIGATION ---
-st.sidebar.title("WMS Control Panel")
-if st.sidebar.button("🏠 Home", use_container_width=True): st.session_state.page = "home"
-if st.sidebar.button("📤 Outbound (Scan Out)", use_container_width=True): st.session_state.page = "outbound"
-if st.sidebar.button("📥 Inbound", use_container_width=True): st.session_state.page = "inbound"
-
-# --- 6. PAGE CONTENT ---
+# --- 5. PAGES ---
 file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# HOME
 if st.session_state.page == "home":
-    st.title("📦 Warehouse Dashboard")
-    total_items = inventory_col.count_documents({})
-    st.metric("Unique SKUs in System", total_items)
+    st.title("📊 Inventory Dashboard & Editor")
+    raw_data = list(inventory_col.find())
+    if raw_data:
+        df_edit = pd.DataFrame(raw_data)
+        edited_df = st.data_editor(df_edit, column_config={"_id": None}, num_rows="dynamic", use_container_width=True)
+        
+        if st.button("💾 Apply Changes & Delete", type="primary"):
+            # Deletion Logic
+            orig_ids = [i['_id'] for i in raw_data]
+            rem_ids = edited_df['_id'].tolist() if not edited_df.empty else []
+            for d_id in [oid for oid in orig_ids if oid not in rem_ids]:
+                inventory_col.delete_one({"_id": d_id})
+            # Update Logic
+            for _, row in edited_df.iterrows():
+                inventory_col.update_one({"_id": row["_id"]}, {"$set": {"sku": str(row["sku"]).upper(), "name": str(row["name"]).upper(), "location": str(row["location"]).upper(), "quantity": int(row["quantity"])}})
+            st.success("Cloud Synchronized!")
+            st.rerun()
+    else: st.info("No stock found.")
 
-# OUTBOUND
 elif st.session_state.page == "outbound":
-    head_l, head_r = st.columns([3, 1])
-    head_l.title("📤 Outbound Processing")
-    if head_r.button("✨ New Session", use_container_width=True):
-        st.session_state.session_log, st.session_state.scan_pair = [], []
-        st.session_state.last_msg = (None, None)
-        st.rerun()
-    
-    col_left, col_right = st.columns([1, 1], gap="large")
-    with col_left:
-        st.subheader("Scan Terminal")
-        all_locs = sorted(inventory_col.distinct("location"))
-        st.session_state.current_loc = st.selectbox("Location", options=all_locs, index=None)
+    st.title("📤 Outbound Processing")
+    all_locs = sorted(inventory_col.distinct("location"))
+    st.session_state.current_loc = st.selectbox("Current Station", options=all_locs, index=None)
+    if st.session_state.current_loc:
+        msg_t, msg_x = st.session_state.last_msg
+        if msg_t == "success": st.success(msg_x)
+        if msg_t == "error": st.error(msg_x)
+        st.text_input("SCAN_ZONE", key="main_scanner", on_change=process_scan, label_visibility="collapsed")
+        auto_focus_js()
+    if st.session_state.session_log:
+        df_s = pd.DataFrame(st.session_state.session_log)
+        # 3PL Export Order
+        order = ["shipment_id", "sku", "location", "type", "timestamp", "outbound_qty"]
+        st.download_button("📥 Export Session", data=to_excel(df_s[order]), file_name=f"session_{file_ts}.xlsx")
+        st.table(df_s[['sku', 'shipment_id']])
 
-        if st.session_state.current_loc:
-            st.divider()
-            msg_type, msg_text = st.session_state.last_msg
-            if msg_type == "success": st.success(msg_text)
-            if msg_type == "error": st.error(msg_text)
-            st.text_input("SCAN_ZONE", key="main_scanner", on_change=process_scan, label_visibility="collapsed")
-            auto_focus_js()
-
-    with col_right:
-        log_h, log_b = st.columns([2, 1])
-        log_h.subheader("Live Session Log")
-        if st.session_state.session_log:
-            df_sess = pd.DataFrame(st.session_state.session_log)
-            # EXPORT ORDER: shipment_id, sku, location, type, timestamp, outbound_qty
-            column_order = ["shipment_id", "sku", "location", "type", "timestamp", "outbound_qty"]
-            df_export = df_sess[[c for c in column_order if c in df_sess.columns]].copy()
-            df_export['timestamp'] = df_export['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            log_b.download_button("📥 Export Session", data=to_excel(df_export), file_name=f"session_{file_ts}.xlsx")
-            st.table(df_sess[['sku', 'shipment_id']])
-
-# INBOUND
 elif st.session_state.page == "inbound":
-    st.title("📥 Inbound Stock Entry")
+    st.title("📥 Inbound Entry")
     with st.form("inbound_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        sku_r = c1.text_input("SKU Barcode*")
-        name_r = c2.text_input("Product Name*")
-        qty = c1.number_input("Quantity*", min_value=1, step=1)
-        loc_r = c2.text_input("Location*")
-        if st.form_submit_button("Confirm Inbound Entry", use_container_width=True):
-            if sku_r and name_r and loc_r:
-                sku_u, name_u, loc_u = sku_r.strip().upper(), name_r.strip().upper(), loc_r.strip().upper()
-                inventory_col.update_one({"sku": sku_u, "location": loc_u}, {"$set": {"name": name_u}, "$inc": {"quantity": int(qty)}}, upsert=True)
-                transactions_col.insert_one({"timestamp": datetime.now(), "sku": sku_u, "location": loc_u, "type": "inbound", "inbound_qty": int(qty)})
-                st.success(f"✅ Added {qty} units of {sku_u}")
-            else: st.error("⚠️ All fields required.")
-
-# --- 7. INVENTORY VIEW (SHARED) ---
-st.divider()
-inv_h, btn_tx, btn_stk = st.columns([3, 1, 1])
-inv_h.subheader("📊 Current Warehouse Stock")
-
-# Global Transaction Export
-all_tx = list(transactions_col.find({"type": "outbound"}, {"_id": 0}))
-if all_tx:
-    df_all = pd.DataFrame(all_tx)
-    # Match Header Order
-    order = ["shipment_id", "sku", "location", "type", "timestamp", "outbound_qty"]
-    df_all = df_all[[c for c in order if c in df_all.columns]]
-    df_all['timestamp'] = df_all['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    btn_tx.download_button("📥 Export Transaction", data=to_excel(df_all), file_name=f"all_tx_{file_ts}.xlsx")
-
-inventory_data = list(inventory_col.find({}, {"_id": 0}))
-if inventory_data:
-    df_inv = pd.DataFrame(inventory_data)
-    btn_stk.download_button("📥 Export Stock", data=to_excel(df_inv), file_name=f"inv_{file_ts}.xlsx")
-    st.dataframe(df_inv, use_container_width=True)
+        sku = c1.text_input("SKU*").upper()
+        name = c2.text_input("Name*").upper()
+        qty = c1.number_input("Qty*", min_value=1)
+        loc = c2.text_input("Loc*").upper()
+        if st.form_submit_button("Submit"):
+            inventory_col.update_one({"sku": sku, "location": loc}, {"$set": {"name": name}, "$inc": {"quantity": int(qty)}}, upsert=True)
+            transactions_col.insert_one({"timestamp": datetime.now(), "sku": sku, "location": loc, "type": "inbound", "inbound_qty": int(qty)})
+            st.success(f"Added {qty} of {sku}")
