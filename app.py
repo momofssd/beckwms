@@ -74,10 +74,11 @@ def auto_focus_js():
     components.html("<script>function setFocus(){const input=window.parent.document.querySelector('input[aria-label=\"SCAN_ZONE\"]');if(input&&window.parent.document.activeElement!==input){input.focus();}}setInterval(setFocus,300);setTimeout(setFocus,100);</script>", height=0)
 
 def to_excel(df):
+    """Explicitly ensures headers are written to the Excel file."""
     output = io.BytesIO()
-    # Explicitly set header=True to ensure column names are included
+    # We ensure columns are treated as headers explicitly here
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, header=True, sheet_name='Sheet1')
+        df.to_excel(writer, index=False, header=True, sheet_name='WMS_Export')
     return output.getvalue()
 
 def process_scan():
@@ -186,7 +187,8 @@ elif st.session_state.page == "outbound":
         st.subheader("Live Session Log")
         if st.session_state.session_log:
             df_s = pd.DataFrame(st.session_state.session_log)
-            # Ensure headers match dictionary keys
+            # Reordering columns to ensure 'sku' and 'shipment_id' are prominent headers
+            df_s = df_s[['timestamp', 'sku', 'shipment_id', 'location', 'type', 'outbound_qty']]
             st.download_button("Export Session Data", data=to_excel(df_s), file_name=f"session_{file_ts}.xlsx", use_container_width=True)
             st.table(df_s[['sku', 'shipment_id']])
         else: st.caption("No scans in this session.")
@@ -195,9 +197,15 @@ elif st.session_state.page == "outbound":
     inv_h, btn_tx, btn_stk = st.columns([2, 1, 1])
     inv_h.subheader("Global Inventory Dashboard")
     
-    all_tx = list(transactions_col.find({}, {"_id": 0}))
-    if all_tx:
-        df_all_tx = pd.DataFrame(all_tx)
+    # Export Global Transactions with proper headers
+    all_tx_list = list(transactions_col.find({}, {"_id": 0}))
+    if all_tx_list:
+        df_all_tx = pd.DataFrame(all_tx_list)
+        # We ensure a standardized column order for the master export
+        cols = ['timestamp', 'sku', 'location', 'type', 'shipment_id', 'outbound_qty', 'inbound_qty']
+        # Filter for existing columns only to prevent errors
+        existing_cols = [c for c in cols if c in df_all_tx.columns]
+        df_all_tx = df_all_tx[existing_cols]
         btn_tx.download_button("Export Transactions", data=to_excel(df_all_tx), file_name=f"all_transactions_{file_ts}.xlsx", use_container_width=True)
     
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
@@ -209,8 +217,6 @@ elif st.session_state.page == "outbound":
 # INBOUND ENTRY
 elif st.session_state.page == "inbound":
     st.title("Inbound Entry")
-    
-    # --- Inbound Form ---
     with st.form("inbound_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         sku = c1.text_input("SKU").upper()
@@ -223,12 +229,8 @@ elif st.session_state.page == "inbound":
             st.success(f"Entry Successful: {qty} units of {sku}")
             st.rerun()
 
-    # --- DISPLAY CURRENT INVENTORY IN INBOUND UI ---
     st.divider()
     st.subheader("Current Inventory Status")
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
     if inventory_data:
-        df_inv_inbound = pd.DataFrame(inventory_data)
-        st.dataframe(df_inv_inbound, use_container_width=True)
-    else:
-        st.info("Inventory is currently empty.")
+        st.dataframe(pd.DataFrame(inventory_data), use_container_width=True)
