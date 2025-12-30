@@ -6,7 +6,8 @@ def ensure_session_state_initialized() -> None:
         "authenticated": False,
         "user_role": None,
         "username": None,
-        "page": "outbound",
+        # Default landing page after login
+        "page": "home",
         "scan_pair": [],
         "session_log": [],
         "last_msg": (None, None),
@@ -14,4 +15,3 @@ def ensure_session_state_initialized() -> None:
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-
