@@ -7,21 +7,18 @@ import io
 import hashlib
 
 # --- 1. UI CONFIGURATION ---
-st.set_page_config(page_title="Inv WMS", layout="wide")
+st.set_page_config(page_title="Beck's WMS", layout="wide")
 
 # --- 2. DATABASE CONNECTION (Atlas) ---
 @st.cache_resource
 def init_connection():
     try:
-        # Uses the mongo_uri defined in your .streamlit/secrets.toml
         uri = st.secrets["mongo_uri"]
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        # Verify connection
         client.admin.command('ping') 
         return client
     except Exception as e:
         st.error("Connection Error: Could not connect to MongoDB Atlas cluster.")
-        st.info("Ensure your IP is whitelisted in Atlas and secrets.toml is correct.")
         st.stop()
         return None
 
@@ -31,33 +28,34 @@ inventory_col = db["inventory"]
 transactions_col = db["transactions"]
 users_col = db["users"]
 
-# --- 3. SESSION STATE INITIALIZATION ---
-for key in ["scan_pair", "session_log", "page", "last_msg", "authenticated", "user_role", "username"]:
-    if key not in st.session_state:
-        if key == "authenticated":
-            st.session_state[key] = False
-        elif key in ["scan_pair", "session_log"]:
-            st.session_state[key] = []
-        elif key == "page":
-            st.session_state[key] = "outbound"
-        else:
-            st.session_state[key] = None
+# --- 3. SESSION STATE INITIALIZATION (Fixed for Unpacking) ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_role" not in st.session_state:
+    st.session_state.user_role = None
+if "username" not in st.session_state:
+    st.session_state.username = None
+if "page" not in st.session_state:
+    st.session_state.page = "outbound"
+if "scan_pair" not in st.session_state:
+    st.session_state.scan_pair = []
+if "session_log" not in st.session_state:
+    st.session_state.session_log = []
+if "last_msg" not in st.session_state:
+    st.session_state.last_msg = (None, None) # Always initialize as a tuple
 
 # --- 4. AUTHENTICATION HELPERS ---
 def hash_pass(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def login_ui():
-    # Centering the login form using columns
     _, center_col, _ = st.columns([1, 1.5, 1])
-    
     with center_col:
         st.title("WMS System Login")
         with st.form("login_form"):
             user = st.text_input("Username")
             pw = st.text_input("Password", type="password")
             if st.form_submit_button("Login", use_container_width=True):
-                # Query Atlas users collection
                 user_data = users_col.find_one({"username": user, "password": hash_pass(pw)})
                 if user_data:
                     st.session_state.authenticated = True
@@ -67,7 +65,6 @@ def login_ui():
                 else:
                     st.error("Invalid credentials.")
 
-# --- GATEKEEPER ---
 if not st.session_state.authenticated:
     login_ui()
     st.stop()
@@ -91,7 +88,6 @@ def process_scan():
             loc = st.session_state.current_loc
             ts = datetime.now()
             
-            # Check for duplicate tracking/replacement logic
             existing_tx = transactions_col.find_one({"shipment_id": tracking})
             if existing_tx:
                 inventory_col.update_one({"sku": existing_tx["sku"], "location": existing_tx["location"]}, {"$inc": {"quantity": 1}})
@@ -99,7 +95,6 @@ def process_scan():
                 st.session_state.session_log = [l for l in st.session_state.session_log if l['shipment_id'] != tracking]
                 st.toast(f"Tracking {tracking} replaced.")
 
-            # Process outbound decrement
             res = inventory_col.update_one({"sku": sku, "location": loc, "quantity": {"$gt": 0}}, {"$inc": {"quantity": -1}})
             if res.modified_count > 0:
                 entry = {"timestamp": ts, "sku": sku, "shipment_id": tracking, "location": loc, "type": "outbound", "outbound_qty": 1}
@@ -113,7 +108,7 @@ def process_scan():
 
 # --- 6. NAVIGATION SIDEBAR ---
 st.sidebar.title(f"User: {st.session_state.username}")
-st.sidebar.info(f"Access Level: {st.session_state.user_role.upper()}")
+st.sidebar.info(f"Access Level: {st.session_state.user_role.upper() if st.session_state.user_role else ''}")
 st.sidebar.divider()
 
 if st.sidebar.button("Outbound Processing", use_container_width=True): st.session_state.page = "outbound"
@@ -122,23 +117,21 @@ if st.sidebar.button("Inventory Dashboard", use_container_width=True): st.sessio
 
 st.sidebar.divider()
 if st.sidebar.button("Logout", use_container_width=True, type="secondary"):
-    st.session_state.authenticated = False
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
     st.rerun()
 
 # --- 7. PAGES ---
 file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# INVENTORY DASHBOARD
 if st.session_state.page == "home":
     st.title("Inventory Management")
     raw_data = list(inventory_col.find())
     if raw_data:
         df_display = pd.DataFrame(raw_data)
-        
         if st.session_state.user_role == "admin":
             st.subheader("Inventory Editor (Admin Only)")
             edited_data = st.data_editor(df_display, column_config={"_id": None}, num_rows="dynamic", use_container_width=True, key="inventory_table")
-            
             if st.button("Apply Changes and Sync Database", type="primary"):
                 state = st.session_state.inventory_table
                 for row_idx in state.get("deleted_rows", []): inventory_col.delete_one({"_id": df_display.iloc[row_idx]["_id"]})
@@ -167,7 +160,6 @@ if st.session_state.page == "home":
             st.dataframe(df_display.drop(columns=["_id"]), use_container_width=True)
     else: st.info("Inventory database is empty.")
 
-# OUTBOUND TERMINAL
 elif st.session_state.page == "outbound":
     head_l, head_r = st.columns([3, 1])
     head_l.title("Outbound Terminal")
@@ -183,9 +175,14 @@ elif st.session_state.page == "outbound":
         st.session_state.current_loc = st.selectbox("Select Station Location", options=all_locs, index=None)
         if st.session_state.current_loc:
             st.divider()
-            msg_t, msg_x = st.session_state.last_msg
-            if msg_t == "success": st.success(msg_x)
-            if msg_t == "error": st.error(msg_x)
+            
+            # --- FIXED UNPACKING LOGIC ---
+            msg_data = st.session_state.get("last_msg", (None, None))
+            if isinstance(msg_data, tuple) and len(msg_data) == 2:
+                msg_t, msg_x = msg_data
+                if msg_t == "success": st.success(msg_x)
+                if msg_t == "error": st.error(msg_x)
+            
             st.text_input("SCAN_ZONE", key="main_scanner", on_change=process_scan, label_visibility="collapsed")
             auto_focus_js()
             if len(st.session_state.scan_pair) == 0: st.info("Awaiting SKU scan...")
@@ -200,7 +197,6 @@ elif st.session_state.page == "outbound":
             st.table(df_s[['sku', 'shipment_id']])
         else: st.caption("No scans in this session.")
 
-# INBOUND ENTRY
 elif st.session_state.page == "inbound":
     st.title("Inbound Entry")
     with st.form("inbound_form", clear_on_submit=True):
