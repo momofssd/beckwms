@@ -7,7 +7,6 @@ import io
 
 # --- 1. DATABASE CONNECTION ---
 try:
-    # Adding maxPoolSize and waitQueueTimeout for better performance during rapid scans
     client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
     db = client["warehouse_db"]
     inventory_col = db["inventory"]
@@ -29,7 +28,7 @@ def auto_focus_js():
                     input.focus();
                 }
             }
-            setInterval(setFocus, 300); // Check every 300ms for faster response
+            setInterval(setFocus, 300); 
             setTimeout(setFocus, 100);
         </script>
         """,
@@ -44,48 +43,62 @@ def to_excel(df):
     return output.getvalue()
 
 def process_scan():
-    """Callback function to handle scans without crashing the session state."""
+    """Callback function to handle scans with uppercase conversion."""
     scan_val = st.session_state.main_scanner
     
     if scan_val:
-        # Add the scan to our buffer
-        st.session_state.scan_buffer.append(scan_val)
+        # Convert scan to uppercase immediately
+        st.session_state.scan_pair.append(scan_val.strip().upper())
         
-        # Check if we have both SKU and Tracking
-        if len(st.session_state.scan_buffer) == 2:
-            sku_found = st.session_state.scan_buffer[0]
-            tracking_found = st.session_state.scan_buffer[1]
-            selected_loc = st.session_state.current_loc
+        if len(st.session_state.scan_pair) == 2:
+            sku_found = st.session_state.scan_pair[0]
+            tracking_found = st.session_state.scan_pair[1]
+            selected_loc = st.session_state.current_loc # Already upper from selectbox
+            ts = datetime.now()
             
-            # Database Update Logic
+            # --- DUPLICATE HANDLING ---
+            existing_tx = transactions_col.find_one({"shipment_id": tracking_found})
+            if existing_tx:
+                inventory_col.update_one(
+                    {"sku": existing_tx["sku"], "location": existing_tx["location"]},
+                    {"$inc": {"quantity": 1}}
+                )
+                transactions_col.delete_one({"_id": existing_tx["_id"]})
+                st.session_state.session_log = [log for log in st.session_state.session_log if log['shipment_id'] != tracking_found]
+                st.toast(f"🔄 Duplicate tracking {tracking_found} replaced.", icon="⚠️")
+
+            # --- PROCESS NEW TRANSACTION ---
             update_res = inventory_col.update_one(
                 {"sku": sku_found, "location": selected_loc, "quantity": {"$gt": 0}},
                 {"$inc": {"quantity": -1}}
             )
 
             if update_res.modified_count > 0:
-                transactions_col.insert_one({
-                    "shipment_id": tracking_found,
+                new_entry = {
+                    "timestamp": ts,
                     "sku": sku_found,
+                    "shipment_id": tracking_found,
                     "location": selected_loc,
                     "type": "outbound",
-                    "timestamp": datetime.now()
-                })
+                    "outbound_qty": 1
+                }
+                transactions_col.insert_one(new_entry.copy())
+                st.session_state.session_log.insert(0, new_entry)
                 st.session_state.last_msg = ("success", f"✅ Shipped: {sku_found}")
             else:
                 st.session_state.last_msg = ("error", f"❌ Error: {sku_found} out of stock at {selected_loc}")
             
-            # Reset buffer for next transaction
-            st.session_state.scan_buffer = []
+            st.session_state.scan_pair = []
         
-        # CLEAR the input widget value for the next scan
         st.session_state.main_scanner = ""
 
-# --- 4. APP CONFIG & SESSION STATE INITIALIZATION ---
-st.set_page_config(page_title="Beck's High-Speed WMS", layout="wide")
+# --- 4. SESSION STATE INIT ---
+st.set_page_config(page_title="Inbound Outbound WMS", layout="wide")
 
-if "scan_buffer" not in st.session_state:
-    st.session_state.scan_buffer = []
+if "scan_pair" not in st.session_state:
+    st.session_state.scan_pair = [] 
+if "session_log" not in st.session_state:
+    st.session_state.session_log = [] 
 if "page" not in st.session_state:
     st.session_state.page = "outbound"
 if "last_msg" not in st.session_state:
@@ -99,86 +112,125 @@ if st.sidebar.button("🏠 Home", use_container_width=True):
     st.session_state.page = "home"
 if st.sidebar.button("📤 Outbound (Scan Out)", use_container_width=True):
     st.session_state.page = "outbound"
-if st.sidebar.button("📥 Inbound (Scan In)", use_container_width=True):
+if st.sidebar.button("📥 Inbound", use_container_width=True):
     st.session_state.page = "inbound"
 
-# --- 6. PAGE ROUTING ---
+# --- 6. PAGE CONTENT ---
+file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# HOME PAGE
 if st.session_state.page == "home":
     st.title("📦 Warehouse Dashboard")
     total_items = inventory_col.count_documents({})
-    low_stock = inventory_col.count_documents({"quantity": {"$lt": 5}})
     c1, c2 = st.columns(2)
     c1.metric("Unique SKUs", total_items)
-    c2.metric("Low Stock Alerts", low_stock)
 
-# OUTBOUND PAGE (The Scan Flow)
 elif st.session_state.page == "outbound":
-    st.title("📤 Outbound Scan Center")
+    head_l, head_r = st.columns([3, 1])
+    head_l.title("📤 Outbound Processing")
+    if head_r.button("✨ New Session", use_container_width=True):
+        st.session_state.session_log = []
+        st.session_state.scan_pair = []
+        st.session_state.last_msg = (None, None)
+        st.rerun()
     
-    all_locs = inventory_col.distinct("location")
-    st.session_state.current_loc = st.selectbox(
-        "Step 1: Set Your Picking Location", 
-        options=all_locs, 
-        index=None,
-        placeholder="Select location to enable scanner..."
-    )
+    col_left, col_right = st.columns([1, 1], gap="large")
 
-    if st.session_state.current_loc:
-        st.divider()
-        
-        # Display Messages (Success/Error) from previous scan
-        msg_type, msg_text = st.session_state.last_msg
-        if msg_type == "success": st.success(msg_text)
-        if msg_type == "error": st.error(msg_text)
-
-        # UI Visual Cues
-        if not st.session_state.scan_buffer:
-            st.info("🎯 **ACTION:** Scan Item SKU")
-        else:
-            st.warning(f"📦 **SKU RECORDED:** {st.session_state.scan_buffer[0]} | **NEXT:** Scan Shipment Tracking")
-
-        # THE SCAN ZONE (The only input field used)
-        st.text_input(
-            "SCAN_ZONE", 
-            key="main_scanner", 
-            on_change=process_scan, # This function runs EVERY time the scanner hits Enter
-            label_visibility="collapsed"
+    with col_left:
+        st.subheader("Scan Terminal")
+        # Locations from DB are already upper, but we ensure the dropdown handles them well
+        all_locs = sorted(inventory_col.distinct("location"))
+        st.session_state.current_loc = st.selectbox(
+            "Step 1: Current Location", options=all_locs, index=None, placeholder="Select a location to start..."
         )
 
-        auto_focus_js()
+        if st.session_state.current_loc:
+            st.divider()
+            msg_type, msg_text = st.session_state.last_msg
+            if msg_type == "success": st.success(msg_text)
+            if msg_type == "error": st.error(msg_text)
 
-        # Transaction History Table
-        st.subheader("Recent Activity")
-        logs = list(transactions_col.find().sort("timestamp", -1).limit(5))
-        if logs:
-            df_logs = pd.DataFrame(logs)
-            st.table(df_logs[['timestamp', 'sku', 'shipment_id', 'location']])
+            if not st.session_state.scan_pair:
+                st.info("🎯 **ACTION:** Scan SKU Barcode")
+            else:
+                st.warning(f"📦 **SKU LOADED:** {st.session_state.scan_pair[0]} \n👉 **NEXT:** Scan Shipment Tracking")
 
-# INBOUND PAGE
+            st.text_input("SCAN_ZONE", key="main_scanner", on_change=process_scan, label_visibility="collapsed")
+            auto_focus_js()
+
+    with col_right:
+        log_head, log_btn = st.columns([2, 1])
+        log_head.subheader("Live Transaction Log")
+        
+        if st.session_state.session_log:
+            df_session = pd.DataFrame(st.session_state.session_log)
+            column_order = ["timestamp", "sku", "shipment_id", "location", "type", "outbound_qty"]
+            df_export = df_session[[c for c in column_order if c in df_session.columns]].copy()
+            df_export['timestamp'] = df_export['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            log_btn.download_button("📥 Export Session", data=to_excel(df_export), file_name=f"session_shipments_{file_ts}.xlsx", use_container_width=True)
+
+            df_display = df_session.copy()
+            df_display['time'] = df_display['timestamp'].dt.strftime('%H:%M:%S')
+            st.table(df_display[['time', 'sku', 'shipment_id']])
+        else:
+            st.info("No activity in this session yet.")
+
+# --- INBOUND MODULE (Uppercase Enabled) ---
 elif st.session_state.page == "inbound":
-    st.title("📥 Inbound Receiving")
-    st.write("Inbound scanning logic coming soon...")
+    st.title("📥 Inbound Stock Entry")
+    st.write("Item details will be converted to UPPERCASE automatically.")
+    
+    with st.form("inbound_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            sku_raw = st.text_input("SKU Barcode*")
+            name_raw = st.text_input("Product Name*")
+        with col2:
+            quantity = st.number_input("Quantity to Add*", min_value=1, step=1)
+            location_raw = st.text_input("Warehouse Location*")
+        
+        submit_btn = st.form_submit_button("Confirm Inbound Entry", use_container_width=True)
+        
+        if submit_btn:
+            if not sku_raw or not name_raw or not location_raw:
+                st.error("⚠️ All fields are required to process inbound.")
+            else:
+                # Convert all strings to UPPERCASE before database entry
+                sku_upper = sku_raw.strip().upper()
+                name_upper = name_raw.strip().upper()
+                loc_upper = location_raw.strip().upper()
 
-# --- 7. GLOBAL INVENTORY VIEW (Always at bottom) ---
+                inventory_col.update_one(
+                    {"sku": sku_upper, "location": loc_upper},
+                    {"$set": {"name": name_upper}, "$inc": {"quantity": int(quantity)}},
+                    upsert=True
+                )
+                
+                transactions_col.insert_one({
+                    "timestamp": datetime.now(),
+                    "sku": sku_upper,
+                    "location": loc_upper,
+                    "type": "inbound",
+                    "inbound_qty": int(quantity)
+                })
+                
+                st.success(f"✅ Successfully added {quantity} units of {sku_upper} to {loc_upper}")
+
+# --- 7. INVENTORY VIEW ---
 st.divider()
-st.subheader("📊 Live Inventory Status")
+inv_head_col, btn_tx_col, btn_stock_col = st.columns([3, 1, 1])
+inv_head_col.subheader("📊 Current Warehouse Stock")
+
+full_tx = list(transactions_col.find({"type": "outbound"}, {"_id": 0}))
+if full_tx:
+    df_full_tx = pd.DataFrame(full_tx)
+    df_full_tx['outbound_qty'] = 1
+    df_full_tx = df_full_tx[["timestamp", "sku", "shipment_id", "location", "type", "outbound_qty"]]
+    df_full_tx['timestamp'] = df_full_tx['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    btn_tx_col.download_button("📥 Export Transaction", data=to_excel(df_full_tx), file_name=f"transactions_{file_ts}.xlsx", use_container_width=True)
+
 inventory_data = list(inventory_col.find({}, {"_id": 0}))
-
 if inventory_data:
-    df = pd.DataFrame(inventory_data)
-    st.dataframe(df, use_container_width=True)
-    
-    st.write("### 📂 Export Data")
-    col_exp1, col_exp2 = st.columns(2)
-    file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    with col_exp1:
-        tx_data = list(transactions_col.find({"type": "outbound"}, {"_id": 0}))
-        if tx_data:
-            df_tx = pd.DataFrame(tx_data)
-            st.download_button("📥 Export Transactions", data=to_excel(df_tx), file_name=f"tx_{file_ts}.xlsx")
-    
-    with col_exp2:
-        st.download_button("📥 Export Inventory", data=to_excel(df), file_name=f"inv_{file_ts}.xlsx")
+    df_inv = pd.DataFrame(inventory_data)
+    btn_stock_col.download_button("📥 Export Stock", data=to_excel(df_inv), file_name=f"inventory_{file_ts}.xlsx", use_container_width=True)
+    st.dataframe(df_inv, use_container_width=True)
