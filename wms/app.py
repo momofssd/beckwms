@@ -17,6 +17,7 @@ from wms.session import ensure_session_state_initialized
 from wms.pages import home as home_page
 from wms.pages import inbound as inbound_page
 from wms.pages import outbound as outbound_page
+from wms.pages import transactions as transactions_page
 
 
 def render_sidebar() -> None:
@@ -32,6 +33,8 @@ def render_sidebar() -> None:
         st.session_state.page = "inbound"
     if st.sidebar.button("Outbound Processing", use_container_width=True):
         st.session_state.page = "outbound"
+    if st.sidebar.button("Transactions", use_container_width=True):
+        st.session_state.page = "transactions"
 
     st.sidebar.divider()
     if st.sidebar.button("Logout", use_container_width=True):
@@ -57,5 +60,9 @@ def run() -> None:
         outbound_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
     elif st.session_state.page == "inbound":
         inbound_page.render(
+            inventory_col=inventory_col, transactions_col=transactions_col
+        )
+    elif st.session_state.page == "transactions":
+        transactions_page.render(
             inventory_col=inventory_col, transactions_col=transactions_col
         )

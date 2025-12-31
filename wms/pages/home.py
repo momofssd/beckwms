@@ -31,6 +31,7 @@ def render(*, inventory_col, transactions_col) -> None:
                         {
                             "timestamp": datetime.now(),
                             "sku": str(row.get("sku", "")).strip().upper(),
+                            "name": str(row.get("name", "")).strip().upper(),
                             "location": str(row.get("location", "")).strip().upper(),
                             "type": "void",
                             "void_qty": int(current_qty),
@@ -65,6 +66,7 @@ def render(*, inventory_col, transactions_col) -> None:
                         {
                             "timestamp": datetime.now(),
                             "sku": str(current_row.get("sku", "")).strip().upper(),
+                            "name": str(current_row.get("name", "")).strip().upper(),
                             "location": str(current_row.get("location", "")).strip().upper(),
                             "type": "void",
                             "void_qty": int(reduced_by),

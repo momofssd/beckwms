@@ -64,6 +64,7 @@ def render(*, inventory_col, transactions_col) -> None:
                         {
                             "timestamp": datetime.now(),
                             "sku": sku2,
+                            "name": name2,
                             "location": loc2,
                             "type": "inbound",
                             "inbound_qty": int(qty2),
@@ -95,6 +96,7 @@ def render(*, inventory_col, transactions_col) -> None:
                 {
                     "timestamp": datetime.now(),
                     "sku": sku,
+                    "name": name,
                     "location": loc,
                     "type": "inbound",
                     "inbound_qty": int(qty),

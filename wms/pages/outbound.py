@@ -103,6 +103,7 @@ def render(*, inventory_col, transactions_col) -> None:
             preferred_cols = [
                 "timestamp",
                 "sku",
+                "name",
                 "shipment_id",
                 "location",
                 "type",
@@ -146,6 +147,7 @@ def render(*, inventory_col, transactions_col) -> None:
         cols = [
             "timestamp",
             "sku",
+            "name",
             "location",
             "type",
             "shipment_id",
