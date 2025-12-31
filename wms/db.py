@@ -1,15 +1,18 @@
 import streamlit as st
 from pymongo import MongoClient
 
+from wms.config import get_mongo_uri
+
 
 @st.cache_resource
 def init_connection() -> MongoClient:
     """Initialize and cache the MongoDB client.
 
-    Uses `st.secrets["mongo_uri"]`.
+    Uses env var `MONGO_URI` (preferred for local development) and falls back
+    to `st.secrets["mongo_uri"]`.
     """
     try:
-        uri = st.secrets["mongo_uri"]
+        uri = get_mongo_uri(required=True)
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         client.admin.command("ping")
         return client
@@ -27,4 +30,3 @@ def get_collections():
         "transactions": db["transactions"],
         "users": db["users"],
     }
-

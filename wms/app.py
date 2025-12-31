@@ -2,6 +2,15 @@ from __future__ import annotations
 
 import streamlit as st
 
+# Local development convenience: load environment variables from `.env`.
+# No-op if python-dotenv isn't installed or if `.env` doesn't exist.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 from wms.auth import require_auth
 from wms.db import get_collections
 from wms.session import ensure_session_state_initialized
