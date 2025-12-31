@@ -7,6 +7,43 @@ from wms.outbound import process_scan
 from wms.ui_utils import auto_focus_js, to_excel
 
 
+def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize transaction quantity into a single signed `qty` column.
+
+    Rules:
+    - inbound  -> qty = +inbound_qty
+    - outbound -> qty = -outbound_qty
+
+    This keeps exports consistent and avoids separate inbound/outbound columns.
+    """
+    if df is None or df.empty:
+        return df
+
+    df2 = df.copy()
+    if "qty" not in df2.columns:
+        df2["qty"] = 0
+
+    inbound_mask = df2.get("type").eq("inbound") if "type" in df2.columns else False
+    outbound_mask = df2.get("type").eq("outbound") if "type" in df2.columns else False
+
+    if "inbound_qty" in df2.columns:
+        df2.loc[inbound_mask, "qty"] = pd.to_numeric(
+            df2.loc[inbound_mask, "inbound_qty"], errors="coerce"
+        ).fillna(0)
+    if "outbound_qty" in df2.columns:
+        df2.loc[outbound_mask, "qty"] = -pd.to_numeric(
+            df2.loc[outbound_mask, "outbound_qty"], errors="coerce"
+        ).fillna(0)
+
+    # Keep qty as an integer when possible for nicer Excel output.
+    try:
+        df2["qty"] = df2["qty"].astype(int)
+    except Exception:
+        pass
+
+    return df2
+
+
 def render(*, inventory_col, transactions_col) -> None:
     file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -61,8 +98,9 @@ def render(*, inventory_col, transactions_col) -> None:
                 "shipment_id",
                 "location",
                 "type",
-                "outbound_qty",
+                "qty",
             ]
+            df_s = _compute_qty(df_s)
             df_s = df_s[[c for c in preferred_cols if c in df_s.columns]]
 
 
@@ -96,14 +134,14 @@ def render(*, inventory_col, transactions_col) -> None:
     all_tx_list = list(transactions_col.find({}, {"_id": 0}))
     if all_tx_list:
         df_all_tx = pd.DataFrame(all_tx_list)
+        df_all_tx = _compute_qty(df_all_tx)
         cols = [
             "timestamp",
             "sku",
             "location",
             "type",
             "shipment_id",
-            "outbound_qty",
-            "inbound_qty",
+            "qty",
         ]
         existing_cols = [c for c in cols if c in df_all_tx.columns]
         df_all_tx = df_all_tx[existing_cols]
