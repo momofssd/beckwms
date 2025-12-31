@@ -25,6 +25,7 @@ def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
 
     inbound_mask = df2.get("type").eq("inbound") if "type" in df2.columns else False
     outbound_mask = df2.get("type").eq("outbound") if "type" in df2.columns else False
+    void_mask = df2.get("type").eq("void") if "type" in df2.columns else False
 
     if "inbound_qty" in df2.columns:
         df2.loc[inbound_mask, "qty"] = pd.to_numeric(
@@ -33,6 +34,13 @@ def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
     if "outbound_qty" in df2.columns:
         df2.loc[outbound_mask, "qty"] = -pd.to_numeric(
             df2.loc[outbound_mask, "outbound_qty"], errors="coerce"
+        ).fillna(0)
+
+    # Inventory editor adjustments (reductions/deletions) are logged as type=void.
+    # Export these as negative quantities.
+    if "void_qty" in df2.columns:
+        df2.loc[void_mask, "qty"] = -pd.to_numeric(
+            df2.loc[void_mask, "void_qty"], errors="coerce"
         ).fillna(0)
 
     # Keep qty as an integer when possible for nicer Excel output.

@@ -52,7 +52,7 @@ def run() -> None:
     render_sidebar()
 
     if st.session_state.page == "home":
-        home_page.render(inventory_col=inventory_col)
+        home_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
     elif st.session_state.page == "outbound":
         outbound_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
     elif st.session_state.page == "inbound":
