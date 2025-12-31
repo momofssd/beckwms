@@ -1,2 +1,4 @@
 .env
 
+# Local credential helper (do not commit)
+createCredentialServer.py

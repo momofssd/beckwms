@@ -27,6 +27,7 @@ def get_collections():
     db = client["warehouse_db"]
     return {
         "inventory": db["inventory"],
+        "mm": db["MM"],
         "transactions": db["transactions"],
         "users": db["users"],
     }

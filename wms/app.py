@@ -16,6 +16,7 @@ from wms.db import get_collections
 from wms.session import ensure_session_state_initialized
 from wms.pages import home as home_page
 from wms.pages import inbound as inbound_page
+from wms.pages import material_increation as material_increation_page
 from wms.pages import outbound as outbound_page
 from wms.pages import transactions as transactions_page
 
@@ -29,6 +30,8 @@ def render_sidebar() -> None:
 
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):
         st.session_state.page = "home"
+    if st.sidebar.button("Material Creation", use_container_width=True):
+        st.session_state.page = "material_creation"
     if st.sidebar.button("Inbound Entry", use_container_width=True):
         st.session_state.page = "inbound"
     if st.sidebar.button("Outbound Processing", use_container_width=True):
@@ -47,6 +50,7 @@ def run() -> None:
 
     cols = get_collections()
     inventory_col = cols["inventory"]
+    mm_col = cols["mm"]
     transactions_col = cols["transactions"]
     users_col = cols["users"]
 
@@ -56,11 +60,13 @@ def run() -> None:
 
     if st.session_state.page == "home":
         home_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
+    elif st.session_state.page == "material_creation":
+        material_increation_page.render(mm_col=mm_col)
     elif st.session_state.page == "outbound":
         outbound_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
     elif st.session_state.page == "inbound":
         inbound_page.render(
-            inventory_col=inventory_col, transactions_col=transactions_col
+            inventory_col=inventory_col, transactions_col=transactions_col, mm_col=mm_col
         )
     elif st.session_state.page == "transactions":
         transactions_page.render(
