@@ -99,11 +99,11 @@ def render(*, inventory_col, transactions_col) -> None:
         st.subheader("Live Session Log")
         if st.session_state.session_log:
             df_s = pd.DataFrame(st.session_state.session_log)
-            # Include optional columns like `name` if present (older logs may not have it)
+            # Include optional columns like `product_name` if present (older logs may not have it)
             preferred_cols = [
                 "timestamp",
                 "sku",
-                "name",
+                "product_name",
                 "shipment_id",
                 "location",
                 "type",
@@ -129,7 +129,7 @@ def render(*, inventory_col, transactions_col) -> None:
             # Keep the on-screen table minimal (but include timestamp)
             base_cols = [
                 c
-                for c in ["timestamp", "sku", "name", "shipment_id"]
+                for c in ["timestamp", "sku", "product_name", "shipment_id"]
                 if c in df_display.columns
             ]
             st.table(df_display[base_cols])
@@ -147,7 +147,7 @@ def render(*, inventory_col, transactions_col) -> None:
         cols = [
             "timestamp",
             "sku",
-            "name",
+            "product_name",
             "location",
             "type",
             "shipment_id",

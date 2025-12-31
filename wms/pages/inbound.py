@@ -55,7 +55,7 @@ def render(*, inventory_col, transactions_col) -> None:
                     inventory_col.update_one(
                         {"sku": sku2, "location": loc2},
                         {
-                            "$set": {"name": name2},
+                            "$set": {"product_name": name2},
                             "$inc": {"quantity": int(qty2)},
                         },
                         upsert=True,
@@ -64,7 +64,7 @@ def render(*, inventory_col, transactions_col) -> None:
                         {
                             "timestamp": datetime.now(),
                             "sku": sku2,
-                            "name": name2,
+                            "product_name": name2,
                             "location": loc2,
                             "type": "inbound",
                             "inbound_qty": int(qty2),
@@ -89,14 +89,14 @@ def render(*, inventory_col, transactions_col) -> None:
         if st.form_submit_button("Submit Stock Entry", use_container_width=True):
             inventory_col.update_one(
                 {"sku": sku, "location": loc},
-                {"$set": {"name": name}, "$inc": {"quantity": int(qty)}},
+                {"$set": {"product_name": name}, "$inc": {"quantity": int(qty)}},
                 upsert=True,
             )
             transactions_col.insert_one(
                 {
                     "timestamp": datetime.now(),
                     "sku": sku,
-                    "name": name,
+                    "product_name": name,
                     "location": loc,
                     "type": "inbound",
                     "inbound_qty": int(qty),

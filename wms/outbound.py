@@ -33,17 +33,17 @@ def process_scan(*, inventory_col, transactions_col) -> None:
         if res.modified_count > 0:
             inv_doc = inventory_col.find_one(
                 {"sku": sku, "location": loc},
-                {"_id": 0, "name": 1},
+                {"_id": 0, "product_name": 1},
             )
             product_name = (
-                str((inv_doc or {}).get("name", ""))
+                str((inv_doc or {}).get("product_name", ""))
                 .strip()
                 .upper()
             )
             entry = {
                 "timestamp": ts,
                 "sku": sku,
-                "name": product_name,
+                "product_name": product_name,
                 "shipment_id": tracking,
                 "location": loc,
                 "type": "outbound",

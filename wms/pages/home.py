@@ -31,7 +31,7 @@ def render(*, inventory_col, transactions_col) -> None:
                         {
                             "timestamp": datetime.now(),
                             "sku": str(row.get("sku", "")).strip().upper(),
-                            "name": str(row.get("name", "")).strip().upper(),
+                            "product_name": str(row.get("product_name", "")).strip().upper(),
                             "location": str(row.get("location", "")).strip().upper(),
                             "type": "void",
                             "void_qty": int(current_qty),
@@ -66,7 +66,7 @@ def render(*, inventory_col, transactions_col) -> None:
                         {
                             "timestamp": datetime.now(),
                             "sku": str(current_row.get("sku", "")).strip().upper(),
-                            "name": str(current_row.get("name", "")).strip().upper(),
+                            "product_name": str(current_row.get("product_name", "")).strip().upper(),
                             "location": str(current_row.get("location", "")).strip().upper(),
                             "type": "void",
                             "void_qty": int(reduced_by),
@@ -76,7 +76,11 @@ def render(*, inventory_col, transactions_col) -> None:
 
                 updated_values = {
                     "sku": str(changes.get("sku", current_row["sku"])).strip().upper(),
-                    "name": str(changes.get("name", current_row["name"])).strip().upper(),
+                    "product_name": str(
+                        changes.get("product_name", current_row.get("product_name", ""))
+                    )
+                    .strip()
+                    .upper(),
                     "location": str(changes.get("location", current_row["location"])).strip().upper(),
                     "quantity": int(new_qty),
                 }

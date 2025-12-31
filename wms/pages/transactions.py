@@ -58,7 +58,7 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 
         c1, c2, c3, c4 = st.columns(4)
         sku = c1.text_input("SKU contains", value="").strip().upper()
-        name = c2.text_input("Product name contains", value="").strip().upper()
+        product_name = c2.text_input("Product name contains", value="").strip().upper()
         shipment_id = c3.text_input("Shipment ID contains", value="").strip().upper()
         location = c4.text_input("Location contains", value="").strip().upper()
 
@@ -93,7 +93,7 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out[col].str.upper().str.contains(val, na=False)]
 
     _contains("sku", sku)
-    _contains("name", name)
+    _contains("product_name", product_name)
     _contains("shipment_id", shipment_id)
     _contains("location", location)
 
@@ -124,7 +124,7 @@ def render(*, inventory_col, transactions_col) -> None:
     desired_cols = [
         "timestamp",
         "sku",
-        "name",
+        "product_name",
         "shipment_id",
         "location",
         "type",
@@ -135,25 +135,28 @@ def render(*, inventory_col, transactions_col) -> None:
             df[c] = "" if c != "qty" else 0
 
     # Best-effort: fill product name from transaction, else from inventory mapping.
-    # Inbound historically didn't write `name` into the transaction.
+    # Inbound historically didn't write `product_name` into the transaction.
     # Prefer the name stored on each transaction (after the outbound fix).
     # Fallback to inventory name if missing.
     inv_map = {
         (str(d.get("sku", "")).strip().upper(), str(d.get("location", "")).strip().upper()): str(
-            d.get("name", "")
+            d.get("product_name", "")
         ).strip().upper()
-        for d in inventory_col.find({}, {"_id": 0, "sku": 1, "location": 1, "name": 1})
+        for d in inventory_col.find(
+            {},
+            {"_id": 0, "sku": 1, "location": 1, "product_name": 1},
+        )
     }
     if "sku" in df.columns:
         df["sku"] = df["sku"].astype(str).str.strip().str.upper()
     if "location" in df.columns:
         df["location"] = df["location"].astype(str).str.strip().str.upper()
 
-    # Only fill missing/blank names.
-    df["name"] = df["name"].astype(str).fillna("")
-    missing_name = df["name"].str.strip().eq("")
-    if missing_name.any() and "location" in df.columns and "sku" in df.columns:
-        df.loc[missing_name, "name"] = df.loc[missing_name].apply(
+    # Only fill missing/blank product names.
+    df["product_name"] = df["product_name"].astype(str).fillna("")
+    missing_product_name = df["product_name"].str.strip().eq("")
+    if missing_product_name.any() and "location" in df.columns and "sku" in df.columns:
+        df.loc[missing_product_name, "product_name"] = df.loc[missing_product_name].apply(
             lambda r: inv_map.get((r.get("sku"), r.get("location")), ""),
             axis=1,
         )
@@ -180,6 +183,6 @@ def render(*, inventory_col, transactions_col) -> None:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "name": st.column_config.TextColumn("Product Name"),
+            "product_name": st.column_config.TextColumn("Product Name"),
         },
     )
