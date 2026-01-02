@@ -19,6 +19,7 @@ from wms.pages import inbound as inbound_page
 from wms.pages import material_increation as material_increation_page
 from wms.pages import outbound as outbound_page
 from wms.pages import transactions as transactions_page
+from wms.pages import movements as movements_page
 
 
 def render_sidebar() -> None:
@@ -38,6 +39,8 @@ def render_sidebar() -> None:
         st.session_state.page = "outbound"
     if st.sidebar.button("Transactions", use_container_width=True):
         st.session_state.page = "transactions"
+    if st.sidebar.button("Movements", use_container_width=True):
+        st.session_state.page = "movements"
 
     st.sidebar.divider()
     if st.sidebar.button("Logout", use_container_width=True):
@@ -84,3 +87,5 @@ def run() -> None:
         transactions_page.render(
             inventory_col=inventory_col, transactions_col=transactions_col
         )
+    elif st.session_state.page == "movements":
+        movements_page.render(movement_col=movement_col)
