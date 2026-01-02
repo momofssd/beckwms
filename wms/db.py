@@ -29,5 +29,6 @@ def get_collections():
         "inventory": db["inventory"],
         "mm": db["MM"],
         "transactions": db["transactions"],
+        "movement": db["movement"],
         "users": db["users"],
     }

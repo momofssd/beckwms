@@ -52,7 +52,7 @@ def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
     return df2
 
 
-def render(*, inventory_col, transactions_col) -> None:
+def render(*, inventory_col, transactions_col, movement_col) -> None:
     file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     head_l, head_r = st.columns([3, 1])
@@ -113,7 +113,9 @@ def render(*, inventory_col, transactions_col) -> None:
                     or not st.session_state.get("outbound_pending")
                 ),
                 on_click=lambda: confirm_outbound_session(
-                    inventory_col=inventory_col, transactions_col=transactions_col
+                    inventory_col=inventory_col,
+                    transactions_col=transactions_col,
+                    movement_col=movement_col,
                 ),
             )
 

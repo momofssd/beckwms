@@ -3,8 +3,10 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from wms.movement import build_movement_doc, next_inbound_transaction_num
 
-def render(*, inventory_col, transactions_col, mm_col) -> None:
+
+def render(*, inventory_col, transactions_col, mm_col, movement_col) -> None:
     st.title("Inbound Entry")
 
 
@@ -86,6 +88,30 @@ def render(*, inventory_col, transactions_col, mm_col) -> None:
                     }
                 )
 
+                # Movement logging (does not change existing inbound behavior)
+                try:
+                    txn_num = next_inbound_transaction_num(movement_col=movement_col)
+                    mv = build_movement_doc(
+                        movement_type="inbound",
+                        transaction_num=txn_num,
+                        qty=int(qty2),
+                        location=loc2,
+                        details=[
+                            {
+                                "timestamp": datetime.now(),
+                                "sku": sku2,
+                                "product_name": name2,
+                                "location": loc2,
+                                "type": "inbound",
+                                "inbound_qty": int(qty2),
+                            }
+                        ],
+                    )
+                    movement_col.insert_one(mv)
+                except Exception:
+                    # Do not block inbound on movement logging failures.
+                    pass
+
                 # Reset scan flow back to step 1 for the next item.
                 st.session_state.inbound_scan_step = 1
                 st.session_state.inbound_scanned_sku = ""
@@ -139,6 +165,30 @@ def render(*, inventory_col, transactions_col, mm_col) -> None:
                             "inbound_qty": int(qty),
                         }
                     )
+
+                    # Movement logging (does not change existing inbound behavior)
+                    try:
+                        txn_num = next_inbound_transaction_num(movement_col=movement_col)
+                        mv = build_movement_doc(
+                            movement_type="inbound",
+                            transaction_num=txn_num,
+                            qty=int(qty),
+                            location=loc_n,
+                            details=[
+                                {
+                                    "timestamp": datetime.now(),
+                                    "sku": sku_n,
+                                    "product_name": name_n,
+                                    "location": loc_n,
+                                    "type": "inbound",
+                                    "inbound_qty": int(qty),
+                                }
+                            ],
+                        )
+                        movement_col.insert_one(mv)
+                    except Exception:
+                        # Do not block inbound on movement logging failures.
+                        pass
                     st.success(f"Entry Successful: {qty} units of {sku_n}")
                     st.rerun()
 

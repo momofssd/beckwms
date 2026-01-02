@@ -2,6 +2,8 @@ from datetime import datetime
 
 import streamlit as st
 
+from wms.movement import build_movement_doc, next_outbound_transaction_num
+
 
 def process_scan(*, inventory_col, transactions_col) -> None:
     scan_val = st.session_state.main_scanner
@@ -62,7 +64,7 @@ def process_scan(*, inventory_col, transactions_col) -> None:
     st.session_state.main_scanner = ""
 
 
-def confirm_outbound_session(*, inventory_col, transactions_col) -> None:
+def confirm_outbound_session(*, inventory_col, transactions_col, movement_col) -> None:
     """Apply all pending outbound scans to DB and mark session as confirmed."""
     if st.session_state.get("outbound_confirmed"):
         st.session_state.last_msg = ("error", "Session already confirmed.")
@@ -121,5 +123,27 @@ def confirm_outbound_session(*, inventory_col, transactions_col) -> None:
 
     # Record transactions after inventory succeeded
     transactions_col.insert_many([p.copy() for p in pending])
+
+    # Record movement document (session-level)
+    try:
+        txn_num = next_outbound_transaction_num(movement_col=movement_col)
+        ship_from_loc = str(pending[0].get("location", "")).strip().upper()
+        mv = build_movement_doc(
+            movement_type="outbound",
+            transaction_num=txn_num,
+            qty=len(pending),
+            location=ship_from_loc,
+            details=[p.copy() for p in pending],
+        )
+        movement_col.insert_one(mv)
+    except Exception as e:
+        # Movement should not block outbound confirmation.
+        st.session_state.last_msg = (
+            "error",
+            f"Session confirmed, but movement write failed: {e}",
+        )
+        st.session_state.outbound_confirmed = True
+        return
+
     st.session_state.outbound_confirmed = True
     st.session_state.last_msg = ("success", f"Confirmed session: {len(pending)} item(s) applied.")

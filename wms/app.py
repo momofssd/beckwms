@@ -52,6 +52,7 @@ def run() -> None:
     inventory_col = cols["inventory"]
     mm_col = cols["mm"]
     transactions_col = cols["transactions"]
+    movement_col = cols["movement"]
     users_col = cols["users"]
 
     ensure_session_state_initialized()
@@ -63,10 +64,17 @@ def run() -> None:
     elif st.session_state.page == "material_creation":
         material_increation_page.render(mm_col=mm_col)
     elif st.session_state.page == "outbound":
-        outbound_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
+        outbound_page.render(
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            movement_col=movement_col,
+        )
     elif st.session_state.page == "inbound":
         inbound_page.render(
-            inventory_col=inventory_col, transactions_col=transactions_col, mm_col=mm_col
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            mm_col=mm_col,
+            movement_col=movement_col,
         )
     elif st.session_state.page == "transactions":
         transactions_page.render(
