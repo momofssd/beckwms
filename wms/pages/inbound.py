@@ -6,8 +6,29 @@ import streamlit as st
 from wms.movement import build_movement_doc, next_inbound_transaction_num
 
 
-def render(*, inventory_col, transactions_col, mm_col, movement_col) -> None:
+def _get_location_options(locations_col) -> list[str]:
+    """Return active locations for dropdown selection."""
+    try:
+        locs = list(
+            locations_col.find({"active": True}, {"_id": 0, "location": 1}).sort(
+                "location", 1
+            )
+        )
+        opts = [str(d.get("location", "")).strip().upper() for d in locs]
+        return [o for o in opts if o]
+    except Exception:
+        # Fail safe: if Locations collection is missing/misconfigured.
+        return []
+
+
+def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_col) -> None:
     st.title("Inbound Entry")
+
+    location_options = _get_location_options(locations_col)
+    if not location_options:
+        st.warning(
+            "No active Locations found. Create locations under Master Data → Locations."
+        )
 
 
     # --- New inbound flow: scan SKU then manually enter details ---
@@ -45,7 +66,14 @@ def render(*, inventory_col, transactions_col, mm_col, movement_col) -> None:
         with st.form("inbound_scan_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             qty2 = c1.number_input("Quantity", min_value=1, key="inbound_scan_qty")
-            loc2 = c1.text_input("Location", key="inbound_scan_loc").upper()
+            if location_options:
+                loc2 = c1.selectbox(
+                    "Location",
+                    options=location_options,
+                    key="inbound_scan_loc",
+                )
+            else:
+                loc2 = ""
             if st.form_submit_button("Submit Scanned Inbound", use_container_width=True):
                 sku2 = (st.session_state.inbound_scanned_sku or "").strip().upper()
                 if not sku2:
@@ -58,7 +86,7 @@ def render(*, inventory_col, transactions_col, mm_col, movement_col) -> None:
                 if not mm_doc:
                     st.error(
                         f"SKU {sku2} is not registered in Material Master (MM). "
-                        "Please create it first under Material Increation."
+                        "Please create it first under Master Data."
                     )
                     return
 
@@ -125,7 +153,10 @@ def render(*, inventory_col, transactions_col, mm_col, movement_col) -> None:
         c1, c2 = st.columns(2)
         sku = c1.text_input("SKU").upper()
         qty = c1.number_input("Quantity", min_value=1)
-        loc = c2.text_input("Location").upper()
+        if location_options:
+            loc = c2.selectbox("Location", options=location_options)
+        else:
+            loc = ""
         if st.form_submit_button("Submit Stock Entry", use_container_width=True):
             sku_n = (sku or "").strip().upper()
             loc_n = (loc or "").strip().upper()
@@ -139,7 +170,7 @@ def render(*, inventory_col, transactions_col, mm_col, movement_col) -> None:
                 if not mm_doc:
                     st.error(
                         f"SKU {sku_n} is not registered in Material Master (MM). "
-                        "Please create it first under Material Increation."
+                        "Please create it first under Master Data."
                     )
                 elif not loc_n:
                     st.error("Location is required.")

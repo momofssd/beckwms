@@ -28,6 +28,7 @@ def get_collections():
     return {
         "inventory": db["inventory"],
         "mm": db["MM"],
+        "locations": db["Locations"],
         "transactions": db["transactions"],
         "movement": db["movement"],
         "users": db["users"],
