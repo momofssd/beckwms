@@ -136,7 +136,6 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
             df_s = _compute_qty(df_s)
             df_s = df_s[[c for c in preferred_cols if c in df_s.columns]]
 
-
             # Make timestamps human-readable for the on-screen table while keeping
             # the raw datetime in the export.
             df_display = df_s.copy()

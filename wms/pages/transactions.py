@@ -142,6 +142,10 @@ def render(*, inventory_col, transactions_col) -> None:
         "shipment_id",
         "location",
         "type",
+        "reason",
+        "sto",
+        "location_from",
+        "location_to",
         "qty",
     ]
     for c in desired_cols:

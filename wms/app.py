@@ -18,6 +18,7 @@ from wms.pages import home as home_page
 from wms.pages import inbound as inbound_page
 from wms.pages import master_data as master_data_page
 from wms.pages import outbound as outbound_page
+from wms.pages import sto as sto_page
 from wms.pages import transactions as transactions_page
 from wms.pages import movements as movements_page
 
@@ -37,6 +38,8 @@ def render_sidebar() -> None:
         st.session_state.page = "inbound"
     if st.sidebar.button("Outbound Processing", use_container_width=True):
         st.session_state.page = "outbound"
+    if st.sidebar.button("STO", use_container_width=True):
+        st.session_state.page = "sto"
     if st.sidebar.button("Transactions", use_container_width=True):
         st.session_state.page = "transactions"
     if st.sidebar.button("Movements", use_container_width=True):
@@ -76,6 +79,14 @@ def run() -> None:
             inventory_col=inventory_col,
             transactions_col=transactions_col,
             movement_col=movement_col,
+        )
+    elif st.session_state.page == "sto":
+        sto_page.render(
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            movement_col=movement_col,
+            mm_col=mm_col,
+            locations_col=locations_col,
         )
     elif st.session_state.page == "inbound":
         inbound_page.render(

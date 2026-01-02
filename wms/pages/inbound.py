@@ -21,14 +21,27 @@ def _get_location_options(locations_col) -> list[str]:
         return []
 
 
+def _get_sku_options(mm_col) -> list[str]:
+    """Return SKU options from Material Master (MM)."""
+    try:
+        skus = list(mm_col.find({}, {"_id": 0, "sku": 1}).sort("sku", 1))
+        opts = [str(d.get("sku", "")).strip().upper() for d in skus]
+        return [o for o in opts if o]
+    except Exception:
+        return []
+
+
 def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_col) -> None:
     st.title("Inbound Entry")
 
     location_options = _get_location_options(locations_col)
+    sku_options = _get_sku_options(mm_col)
     if not location_options:
         st.warning(
             "No active Locations found. Create locations under Master Data → Locations."
         )
+    if not sku_options:
+        st.warning("No SKUs found in Material Master. Create materials under Master Data → Materials.")
 
 
     # --- New inbound flow: scan SKU then manually enter details ---
@@ -151,7 +164,10 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
     st.subheader("Manual Inbound Entry")
     with st.form("inbound_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        sku = c1.text_input("SKU").upper()
+        if sku_options:
+            sku = c1.selectbox("SKU", options=sku_options, index=None)
+        else:
+            sku = ""
         qty = c1.number_input("Quantity", min_value=1)
         if location_options:
             loc = c2.selectbox("Location", options=location_options)

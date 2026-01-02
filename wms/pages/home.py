@@ -16,8 +16,19 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
         st.subheader("Inventory Editor (Admin Only)")
         st.data_editor(
             df_display,
-            # Hide Mongo internal id; allow editing all other fields (including SKU)
-            column_config={"_id": None},
+            # Hide Mongo internal id; only allow editing quantity.
+            column_config={
+                "_id": None,
+                "sku": st.column_config.TextColumn("SKU", disabled=True),
+                "product_name": st.column_config.TextColumn("Product Name", disabled=True),
+                "location": st.column_config.TextColumn("Location", disabled=True),
+                "quantity": st.column_config.NumberColumn(
+                    "Quantity",
+                    min_value=0,
+                    step=1,
+                    help="Admin can only reduce quantity here. Use Inbound Entry to increase."
+                ),
+            },
             num_rows="dynamic",
             use_container_width=True,
             key="inventory_table",
@@ -109,17 +120,8 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
                         # Do not block inventory edits on movement failures.
                         pass
 
-                updated_values = {
-                    "sku": str(changes.get("sku", current_row["sku"])).strip().upper(),
-                    "product_name": str(
-                        changes.get("product_name", current_row.get("product_name", ""))
-                    )
-                    .strip()
-                    .upper(),
-                    "location": str(changes.get("location", current_row["location"])).strip().upper(),
-                    "quantity": int(new_qty),
-                }
-                inventory_col.update_one({"_id": doc_id}, {"$set": updated_values})
+                # Only sync quantity changes. sku/location/product_name are not editable.
+                inventory_col.update_one({"_id": doc_id}, {"$set": {"quantity": int(new_qty)}})
 
             # Disallow adding rows from the editor to avoid untracked inventory creation.
             if state.get("added_rows"):

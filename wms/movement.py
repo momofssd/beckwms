@@ -10,6 +10,8 @@ Inbound:
 - transaction_num: 6 digits, starts with '1' (ascending)
 Void:
 - transaction_num: 4 digits, starts with '3' (ascending)
+STO:
+- transaction_num: 5 digits, starts at 10000 (ascending) e.g. 10000
 """
 
 from datetime import datetime
@@ -54,6 +56,26 @@ def next_inbound_transaction_num(*, movement_col) -> str:
 def next_void_transaction_num(*, movement_col) -> str:
     # 3 + 3 digits, starting at 3001
     return _next_numeric_id(movement_col=movement_col, prefix="3", digits=4)
+
+
+def next_sto_transaction_num(*, movement_col) -> str:
+    # 5 digits starting at 10000
+    last = movement_col.find_one(
+        {"movement_type": "sto", "transaction_num": {"$regex": r"^\d{5}$"}},
+        sort=[("transaction_num", -1)],
+        projection={"_id": 0, "transaction_num": 1},
+    )
+
+    if last:
+        last_num = str(last.get("transaction_num", "")).strip()
+        if last_num.isdigit():
+            nxt = int(last_num) + 1
+            # Ensure we never generate numbers below 10000 even if legacy data exists.
+            if nxt < 10000:
+                nxt = 10000
+            return str(nxt).zfill(5)
+
+    return "10000"
 
 
 def build_movement_doc(
