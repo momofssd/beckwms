@@ -69,6 +69,12 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
             default=sorted([t for t in df.get("type", pd.Series(dtype=str)).dropna().unique()]),
         )
 
+        show_dupes_only = c6.checkbox(
+            "Only duplicated Shipment IDs",
+            value=False,
+            help="Show only rows where shipment_id appears more than once (ignores blank shipment_id).",
+        )
+
         # Date range
         ts = pd.to_datetime(df["timestamp"], errors="coerce") if "timestamp" in df.columns else None
         if ts is not None and ts.notna().any():
@@ -104,6 +110,14 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         ts2 = pd.to_datetime(out["timestamp"], errors="coerce")
         # Inclusive date filtering
         out = out[ts2.dt.date.between(start_date, end_date)]
+
+    if show_dupes_only and "shipment_id" in out.columns:
+        ship = out["shipment_id"].astype(str).str.strip().str.upper()
+        non_blank = ship.ne("")
+        dupes = ship[non_blank].duplicated(keep=False)
+        # Build a boolean mask aligned to `out`
+        mask = non_blank & dupes.reindex(out.index, fill_value=False)
+        out = out[mask]
 
     return out
 

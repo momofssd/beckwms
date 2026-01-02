@@ -29,14 +29,8 @@ def process_scan(*, inventory_col, transactions_col) -> None:
             st.session_state.main_scanner = ""
             return
 
-        if tracking in {x.get("shipment_id") for x in st.session_state.get("outbound_pending", [])}:
-            st.session_state.last_msg = (
-                "error",
-                f"Duplicate Shipment ID in this session: {tracking}",
-            )
-            st.session_state.scan_pair = []
-            st.session_state.main_scanner = ""
-            return
+        # NOTE: Duplicated shipment IDs are allowed.
+        # Multiple scanned items can share the same shipment_id and should each decrement inventory.
 
         inv_doc = inventory_col.find_one(
             {"sku": sku, "location": loc},
@@ -75,40 +69,15 @@ def confirm_outbound_session(*, inventory_col, transactions_col, movement_col) -
         st.session_state.last_msg = ("error", "No pending scans to confirm.")
         return
 
-    # Overwrite behavior:
-    # If a shipment_id already exists in DB, we delete/replace it and keep the latest timestamp.
-    # To keep inventory correct, we reverse the old transaction's inventory impact before
-    # applying the new outbound decrement.
+    # Allow duplicated shipment_id:
+    # Each pending scan becomes its own transaction document. We do NOT overwrite/delete
+    # existing transactions based on shipment_id.
 
     # Apply updates sequentially (Mongo multi-document transactions may not be enabled).
     # If any item fails (out of stock), we abort before writing transactions.
     for p in pending:
         sku = p.get("sku")
         loc = p.get("location")
-        shipment_id = p.get("shipment_id")
-
-        existing_tx = transactions_col.find_one({"shipment_id": shipment_id})
-        if existing_tx:
-            # Reverse inventory based on the existing transaction type.
-            # outbound -> add back 1, inbound -> subtract 1, void -> treat as subtract (safe default)
-            if existing_tx.get("type") == "outbound":
-                inventory_col.update_one(
-                    {"sku": existing_tx.get("sku"), "location": existing_tx.get("location")},
-                    {"$inc": {"quantity": 1}},
-                )
-            elif existing_tx.get("type") == "inbound":
-                inventory_col.update_one(
-                    {"sku": existing_tx.get("sku"), "location": existing_tx.get("location")},
-                    {"$inc": {"quantity": -1}},
-                )
-            elif existing_tx.get("type") == "void":
-                # Existing code treats void as negative qty on export; safest reversal here is -1.
-                inventory_col.update_one(
-                    {"sku": existing_tx.get("sku"), "location": existing_tx.get("location")},
-                    {"$inc": {"quantity": -1}},
-                )
-
-            transactions_col.delete_one({"_id": existing_tx.get("_id")})
 
         res = inventory_col.update_one(
             {"sku": sku, "location": loc, "quantity": {"$gt": 0}},
