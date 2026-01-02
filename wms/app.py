@@ -60,7 +60,11 @@ def run() -> None:
     render_sidebar()
 
     if st.session_state.page == "home":
-        home_page.render(inventory_col=inventory_col, transactions_col=transactions_col)
+        home_page.render(
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            movement_col=movement_col,
+        )
     elif st.session_state.page == "material_creation":
         material_increation_page.render(mm_col=mm_col)
     elif st.session_state.page == "outbound":

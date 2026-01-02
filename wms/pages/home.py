@@ -2,8 +2,10 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
+from wms.movement import build_movement_doc, next_void_transaction_num
 
-def render(*, inventory_col, transactions_col) -> None:
+
+def render(*, inventory_col, transactions_col, movement_col) -> None:
     st.title("Inventory Management")
     raw_data = list(inventory_col.find())
     if not raw_data:
@@ -14,6 +16,7 @@ def render(*, inventory_col, transactions_col) -> None:
         st.subheader("Inventory Editor (Admin Only)")
         st.data_editor(
             df_display,
+            # Hide Mongo internal id; allow editing all other fields (including SKU)
             column_config={"_id": None},
             num_rows="dynamic",
             use_container_width=True,
@@ -27,17 +30,33 @@ def render(*, inventory_col, transactions_col) -> None:
                 row = df_display.iloc[row_idx].to_dict()
                 current_qty = int(row.get("quantity", 0) or 0)
                 if current_qty > 0:
+                    tx_doc = {
+                        "timestamp": datetime.now(),
+                        "sku": str(row.get("sku", "")).strip().upper(),
+                        "product_name": str(row.get("product_name", "")).strip().upper(),
+                        "location": str(row.get("location", "")).strip().upper(),
+                        "type": "void",
+                        "void_qty": int(current_qty),
+                        "reason": "Inventory Editor delete -> void to zero",
+                    }
                     transactions_col.insert_one(
-                        {
-                            "timestamp": datetime.now(),
-                            "sku": str(row.get("sku", "")).strip().upper(),
-                            "product_name": str(row.get("product_name", "")).strip().upper(),
-                            "location": str(row.get("location", "")).strip().upper(),
-                            "type": "void",
-                            "void_qty": int(current_qty),
-                            "reason": "Inventory Editor delete -> void to zero",
-                        }
+                        tx_doc
                     )
+
+                    # Movement doc (void)
+                    try:
+                        txn_num = next_void_transaction_num(movement_col=movement_col)
+                        mv = build_movement_doc(
+                            movement_type="void",
+                            transaction_num=txn_num,
+                            qty=int(current_qty),
+                            location=str(row.get("location", "")).strip().upper(),
+                            details=[tx_doc],
+                        )
+                        movement_col.insert_one(mv)
+                    except Exception:
+                        # Do not block inventory edits on movement failures.
+                        pass
                 inventory_col.update_one(
                     {"_id": row["_id"]},
                     {"$set": {"quantity": 0}},
@@ -62,17 +81,33 @@ def render(*, inventory_col, transactions_col) -> None:
                 # If qty was reduced, log it as a VOID transaction (audit trail).
                 reduced_by = old_qty - new_qty
                 if reduced_by > 0:
+                    tx_doc = {
+                        "timestamp": datetime.now(),
+                        "sku": str(current_row.get("sku", "")).strip().upper(),
+                        "product_name": str(current_row.get("product_name", "")).strip().upper(),
+                        "location": str(current_row.get("location", "")).strip().upper(),
+                        "type": "void",
+                        "void_qty": int(reduced_by),
+                        "reason": "Inventory Editor quantity reduction",
+                    }
                     transactions_col.insert_one(
-                        {
-                            "timestamp": datetime.now(),
-                            "sku": str(current_row.get("sku", "")).strip().upper(),
-                            "product_name": str(current_row.get("product_name", "")).strip().upper(),
-                            "location": str(current_row.get("location", "")).strip().upper(),
-                            "type": "void",
-                            "void_qty": int(reduced_by),
-                            "reason": "Inventory Editor quantity reduction",
-                        }
+                        tx_doc
                     )
+
+                    # Movement doc (void)
+                    try:
+                        txn_num = next_void_transaction_num(movement_col=movement_col)
+                        mv = build_movement_doc(
+                            movement_type="void",
+                            transaction_num=txn_num,
+                            qty=int(reduced_by),
+                            location=str(current_row.get("location", "")).strip().upper(),
+                            details=[tx_doc],
+                        )
+                        movement_col.insert_one(mv)
+                    except Exception:
+                        # Do not block inventory edits on movement failures.
+                        pass
 
                 updated_values = {
                     "sku": str(changes.get("sku", current_row["sku"])).strip().upper(),

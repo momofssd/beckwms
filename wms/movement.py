@@ -8,6 +8,8 @@ Outbound:
 - transaction_num: 8 digits, starts with '2' (ascending)
 Inbound:
 - transaction_num: 6 digits, starts with '1' (ascending)
+Void:
+- transaction_num: 4 digits, starts with '3' (ascending)
 """
 
 from datetime import datetime
@@ -21,21 +23,24 @@ def _next_numeric_id(*, movement_col, prefix: str, digits: int) -> str:
     collection with find_one_and_update + $inc.)
     """
 
-    lo = int(prefix + "0" * (digits - 1))
-    hi = int(prefix + "9" * (digits - 1))
-
+    # NOTE: We only filter by prefix (string) so there is no shared max-digit
+    # range between inbound/outbound/void. Each type can grow without being
+    # limited to a fixed numeric ceiling; the *zfill* width is only for display.
     last = movement_col.find_one(
-        {"transaction_num": {"$gte": str(lo), "$lte": str(hi)}},
+        {"transaction_num": {"$regex": f"^{prefix}"}},
         sort=[("transaction_num", -1)],
         projection={"_id": 0, "transaction_num": 1},
     )
 
-    if last and str(last.get("transaction_num", "")).isdigit():
-        nxt = int(last["transaction_num"]) + 1
-    else:
-        nxt = lo
+    if last:
+        last_num = str(last.get("transaction_num", "")).strip()
+        if last_num.startswith(prefix) and last_num[len(prefix) :].isdigit():
+            nxt_int = int(last_num) + 1
+            return str(nxt_int).zfill(max(digits, len(str(nxt_int))))
 
-    return str(nxt).zfill(digits)
+    # Start number
+    start_int = int(prefix + "0" * (digits - 1))
+    return str(start_int).zfill(digits)
 
 
 def next_outbound_transaction_num(*, movement_col) -> str:
@@ -44,6 +49,11 @@ def next_outbound_transaction_num(*, movement_col) -> str:
 
 def next_inbound_transaction_num(*, movement_col) -> str:
     return _next_numeric_id(movement_col=movement_col, prefix="1", digits=6)
+
+
+def next_void_transaction_num(*, movement_col) -> str:
+    # 3 + 3 digits, starting at 3001
+    return _next_numeric_id(movement_col=movement_col, prefix="3", digits=4)
 
 
 def build_movement_doc(
@@ -64,4 +74,3 @@ def build_movement_doc(
         "location": str(location).strip().upper(),
         "details": details,
     }
-
