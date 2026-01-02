@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from wms.outbound import process_scan
+from wms.outbound import confirm_outbound_session, process_scan
 from wms.ui_utils import auto_focus_js, to_excel
 
 
@@ -59,12 +59,20 @@ def render(*, inventory_col, transactions_col) -> None:
     head_l.title("Outbound Terminal")
     if head_r.button("New Session", use_container_width=True):
         st.session_state.session_log, st.session_state.scan_pair = [], []
+        st.session_state.outbound_pending = []
+        st.session_state.outbound_confirmed = False
+        st.session_state.outbound_session_active = True
         st.session_state.last_msg = (None, None)
         st.rerun()
 
     col_left, col_right = st.columns([1, 1], gap="large")
     with col_left:
         st.subheader("Scan Terminal")
+        if not st.session_state.get("outbound_session_active"):
+            st.info("Click **New Session** to begin scanning.")
+            st.session_state.current_loc = None
+            return
+
         all_locs = sorted(inventory_col.distinct("location"))
         st.session_state.current_loc = st.selectbox(
             "Select Station Location", options=all_locs, index=None
@@ -94,6 +102,20 @@ def render(*, inventory_col, transactions_col) -> None:
                 st.warning(
                     f"SKU {st.session_state.scan_pair[0]} captured. Scan Shipment ID now."
                 )
+
+            st.divider()
+            st.button(
+                "Confirm Session Complete",
+                use_container_width=True,
+                type="primary",
+                disabled=(
+                    st.session_state.get("outbound_confirmed")
+                    or not st.session_state.get("outbound_pending")
+                ),
+                on_click=lambda: confirm_outbound_session(
+                    inventory_col=inventory_col, transactions_col=transactions_col
+                ),
+            )
 
     with col_right:
         st.subheader("Live Session Log")
@@ -125,6 +147,7 @@ def render(*, inventory_col, transactions_col) -> None:
                 data=to_excel(df_s),
                 file_name=f"session_{file_ts}.xlsx",
                 use_container_width=True,
+                disabled=not st.session_state.get("outbound_confirmed"),
             )
             # Keep the on-screen table minimal (but include timestamp)
             base_cols = [
@@ -132,7 +155,12 @@ def render(*, inventory_col, transactions_col) -> None:
                 for c in ["timestamp", "sku", "product_name", "shipment_id"]
                 if c in df_display.columns
             ]
-            st.table(df_display[base_cols])
+            st.dataframe(
+                df_display[base_cols].head(15),
+                use_container_width=True,
+                height=520,
+                hide_index=True,
+            )
         else:
             st.caption("No scans in this session.")
 
