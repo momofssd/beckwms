@@ -72,6 +72,40 @@ def render(*, movement_col) -> None:
     else:
         df_filtered["details"] = ""
 
+    # Delivery Locations for STO (keep as a simple column; do NOT expand details).
+    def _dl_to(x) -> str:
+        """Coerce delivery_locations to a display string.
+
+        Streamlit Cloud can sometimes infer object columns and render dicts as JSON.
+        This forces a plain string for consistent rendering.
+        """
+
+        try:
+            if isinstance(x, dict):
+                return str(x.get("to", "")).strip().upper()
+            # If it arrives as a stringified dict, try a light parse.
+            if isinstance(x, str) and x.strip().startswith("{") and "\"to\"" in x:
+                try:
+                    j = json.loads(x)
+                    if isinstance(j, dict):
+                        return str(j.get("to", "")).strip().upper()
+                except Exception:
+                    pass
+            return "" if x is None else str(x).strip().upper()
+        except Exception:
+            return ""
+
+    if "delivery_locations" in df_filtered.columns:
+        df_filtered["delivery_locations"] = df_filtered["delivery_locations"].apply(_dl_to)
+    else:
+        df_filtered["delivery_locations"] = ""
+
+    # Force dtype to string to avoid Streamlit rendering it as JSON/object.
+    try:
+        df_filtered["delivery_locations"] = df_filtered["delivery_locations"].astype(str)
+    except Exception:
+        pass
+
     cols = [
         c
         for c in [
@@ -80,6 +114,7 @@ def render(*, movement_col) -> None:
             "transaction_num",
             "qty",
             "location",
+            "delivery_locations",
             "details",
         ]
         if c in df_filtered.columns
@@ -130,8 +165,34 @@ def render(*, movement_col) -> None:
         st.caption("No details")
         return
 
-    # Deconstruct (normalize) the embedded details objects into a table.
-    # This will expand nested keys and keep columns consistent.
+    # For STO: do NOT deconstruct/normalize details into columns (that creates outbound.* etc.).
+    # Show a compact table that mirrors the movement DB object fields, and only includes
+    # delivery_locations as a separate field (already in the main table above).
+    if str((selected_mv or {}).get("movement_type", "")).strip().lower() == "sto":
+        mv_view = {
+            k: (selected_mv or {}).get(k)
+            for k in [
+                "timestamp",
+                "movement_type",
+                "transaction_num",
+                "qty",
+                "location",
+                "delivery_locations",
+            ]
+            if k in (selected_mv or {})
+        }
+        df_mv = pd.DataFrame([mv_view])
+        if "timestamp" in df_mv.columns:
+            df_mv["timestamp"] = pd.to_datetime(df_mv["timestamp"], errors="coerce").dt.strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        if "delivery_locations" in df_mv.columns:
+            # Render delivery locations as the destination only.
+            df_mv["delivery_locations"] = df_mv["delivery_locations"].apply(_dl_to)
+        st.dataframe(df_mv, use_container_width=True, hide_index=True)
+        return
+
+    # Otherwise: deconstruct (normalize) the embedded details objects into a table.
     try:
         df_details = pd.json_normalize(details)
         # nicer timestamp rendering

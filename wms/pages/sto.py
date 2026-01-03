@@ -176,6 +176,10 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
                         {"inbound": inbound_tx},
                     ],
                 )
+                mv["delivery_locations"] = {
+                    "from": from_loc_n,
+                    "to": to_loc_n,
+                }
                 movement_col.insert_one(mv)
             except Exception as e:
                 st.warning(f"STO completed, but movement logging failed: {e}")
