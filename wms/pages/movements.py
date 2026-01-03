@@ -81,6 +81,13 @@ def render(*, movement_col) -> None:
         """
 
         try:
+            # Treat pandas NaN as empty
+            try:
+                if pd.isna(x):
+                    return ""
+            except Exception:
+                pass
+
             if isinstance(x, dict):
                 return str(x.get("to", "")).strip().upper()
             # If it arrives as a stringified dict, try a light parse.
@@ -91,7 +98,12 @@ def render(*, movement_col) -> None:
                         return str(j.get("to", "")).strip().upper()
                 except Exception:
                     pass
-            return "" if x is None else str(x).strip().upper()
+            if x is None:
+                return ""
+            s = str(x).strip()
+            if s.lower() in {"nan", "none"}:
+                return ""
+            return s.upper()
         except Exception:
             return ""
 
