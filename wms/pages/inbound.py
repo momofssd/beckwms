@@ -129,7 +129,10 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                     }
                 )
 
-                # Movement logging (does not change existing inbound behavior)
+                # Movement logging
+                # NOTE: If this fails, we still want the inbound itself to succeed,
+                # but we should surface the error so it can be fixed (otherwise
+                # transaction_num will appear "stuck").
                 try:
                     txn_num = next_inbound_transaction_num(movement_col=movement_col)
                     mv = build_movement_doc(
@@ -149,9 +152,11 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                         ],
                     )
                     movement_col.insert_one(mv)
-                except Exception:
-                    # Do not block inbound on movement logging failures.
-                    pass
+                except Exception as e:
+                    st.warning(
+                        "Inbound succeeded, but Movement logging failed. "
+                        f"(transaction_num may not increment) Error: {e}"
+                    )
 
                 # Reset scan flow back to step 1 for the next item.
                 st.session_state.inbound_scan_step = 1
@@ -213,7 +218,7 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                         }
                     )
 
-                    # Movement logging (does not change existing inbound behavior)
+                    # Movement logging
                     try:
                         txn_num = next_inbound_transaction_num(movement_col=movement_col)
                         mv = build_movement_doc(
@@ -233,9 +238,11 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                             ],
                         )
                         movement_col.insert_one(mv)
-                    except Exception:
-                        # Do not block inbound on movement logging failures.
-                        pass
+                    except Exception as e:
+                        st.warning(
+                            "Entry succeeded, but Movement logging failed. "
+                            f"(transaction_num may not increment) Error: {e}"
+                        )
                     st.success(f"Entry Successful: {qty} units of {sku_n}")
                     st.rerun()
 

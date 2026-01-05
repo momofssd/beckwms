@@ -122,6 +122,8 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
     with col_right:
         st.subheader("Live Session Log")
         if st.session_state.session_log:
+            # Each entry in `session_log` is one scanned/processed item (one row).
+            st.caption(f"Items scanned this session: **{len(st.session_state.session_log)}**")
             df_s = pd.DataFrame(st.session_state.session_log)
             # Include optional columns like `product_name` if present (older logs may not have it)
             preferred_cols = [
