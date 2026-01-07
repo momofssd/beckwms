@@ -11,10 +11,28 @@ def auto_focus_js() -> None:
     )
 
 
+def auto_focus_aria_label_js(aria_label: str) -> None:
+    """Force-focus a Streamlit input by aria-label.
+
+    Streamlit renders widgets inside an iframe. This helper focuses the matching
+    input element in the *parent* document.
+    """
+
+    # Keep it small + defensive: focus only if element exists and isn't already active.
+    js = (
+        "<script>"
+        "function setFocus(){"
+        f"const input=window.parent.document.querySelector('input[aria-label=\\\"{aria_label}\\\"]');"
+        "if(input&&window.parent.document.activeElement!==input){input.focus();}}"
+        "setInterval(setFocus,300);setTimeout(setFocus,100);"
+        "</script>"
+    )
+    components.html(js, height=0)
+
+
 def to_excel(df: pd.DataFrame) -> bytes:
     """Serialize a DataFrame to XLSX bytes with headers."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, header=True, sheet_name="WMS_Export")
     return output.getvalue()
-
