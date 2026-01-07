@@ -57,7 +57,24 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         st.caption("Filters")
 
         c1, c2, c3, c4 = st.columns(4)
-        sku = c1.text_input("SKU contains", value="").strip().upper()
+        sku_options = sorted(
+            [
+                s
+                for s in df.get("sku", pd.Series(dtype=str))
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .unique()
+                if s
+            ]
+        )
+        selected_skus = c1.multiselect(
+            "SKU",
+            options=sku_options,
+            default=[],
+            help="Search and select one or more SKUs (dropdown items are checkable). Leave empty to include all SKUs.",
+        )
         product_name = c2.text_input("Product name contains", value="").strip().upper()
         shipment_id = c3.text_input("Shipment ID contains", value="").strip().upper()
         location = c4.text_input("Location contains", value="").strip().upper()
@@ -98,7 +115,9 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out[col] = out[col].astype(str)
         out = out[out[col].str.upper().str.contains(val, na=False)]
 
-    _contains("sku", sku)
+    if selected_skus and "sku" in out.columns:
+        out["sku"] = out["sku"].astype(str).str.strip().str.upper()
+        out = out[out["sku"].isin([s.strip().upper() for s in selected_skus if s])]
     _contains("product_name", product_name)
     _contains("shipment_id", shipment_id)
     _contains("location", location)
