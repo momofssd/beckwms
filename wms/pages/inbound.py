@@ -35,7 +35,7 @@ def _get_sku_options(mm_col) -> list[str]:
 def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_col) -> None:
     st.title("Inbound Entry")
 
-    tab_inbound, tab_manual = st.tabs(["Inbound Entry", "Manual Inbound Entry"])
+    tab_inbound, tab_single, tab_manual = st.tabs(["Inbound Multi Entry", "Inbound Single Entry", "Manual Inbound Entry"])
 
     def _go_to_scan_step_2() -> None:
         """Advance the scan flow to step 2 when the user presses Enter."""
@@ -186,6 +186,213 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                     st.session_state.inbound_scan_sku_input = ""
                     st.success(f"Inbound Successful: {qty2} units of {sku2}")
                     st.rerun()
+
+    with tab_single:
+        st.subheader("Inbound Single Entry")
+        
+        # Initialize session state for single entry
+        if "inbound_single_session_log" not in st.session_state:
+            st.session_state.inbound_single_session_log = []
+        if "inbound_single_session_active" not in st.session_state:
+            st.session_state.inbound_single_session_active = False
+        if "inbound_single_location" not in st.session_state:
+            st.session_state.inbound_single_location = None
+        if "inbound_single_last_msg" not in st.session_state:
+            st.session_state.inbound_single_last_msg = (None, None)
+
+        def _process_single_scan() -> None:
+            """Process a scanned SKU in single entry mode."""
+            scanned = (st.session_state.get("inbound_single_scan_input") or "").strip().upper()
+            if not scanned:
+                return
+            
+            # Validate SKU exists in master data
+            mm_doc = mm_col.find_one(
+                {"sku": scanned},
+                {"_id": 0, "sku": 1, "product_name": 1, "name": 1},
+            )
+            if not mm_doc:
+                st.session_state.inbound_single_last_msg = (
+                    "error",
+                    f"SKU {scanned} is not registered in Material Master. Please create it first."
+                )
+                st.session_state.inbound_single_scan_input = ""
+                return
+            
+            # Add to session log
+            product_name = str(mm_doc.get("product_name") or mm_doc.get("name") or "").strip().upper()
+            st.session_state.inbound_single_session_log.append({
+                "timestamp": datetime.now(),
+                "sku": scanned,
+                "product_name": product_name,
+                "qty": 1,
+            })
+            st.session_state.inbound_single_last_msg = ("success", f"Scanned: {scanned}")
+            st.session_state.inbound_single_scan_input = ""
+
+        def _confirm_single_session() -> None:
+            """Confirm and submit all scanned items in the session."""
+            if not st.session_state.inbound_single_session_log:
+                st.session_state.inbound_single_last_msg = ("error", "No items to submit.")
+                return
+            
+            location = st.session_state.inbound_single_location
+            if not location:
+                st.session_state.inbound_single_last_msg = ("error", "Location is required.")
+                return
+            
+            # Aggregate quantities by SKU
+            sku_aggregates = {}
+            for item in st.session_state.inbound_single_session_log:
+                sku = item["sku"]
+                if sku not in sku_aggregates:
+                    sku_aggregates[sku] = {
+                        "product_name": item["product_name"],
+                        "qty": 0
+                    }
+                sku_aggregates[sku]["qty"] += item["qty"]
+            
+            # Write to database
+            details_list = []
+            for sku, data in sku_aggregates.items():
+                inventory_col.update_one(
+                    {"sku": sku, "location": location},
+                    {
+                        "$set": {"product_name": data["product_name"]},
+                        "$inc": {"quantity": data["qty"]},
+                    },
+                    upsert=True,
+                )
+                transactions_col.insert_one({
+                    "timestamp": datetime.now(),
+                    "sku": sku,
+                    "product_name": data["product_name"],
+                    "location": location,
+                    "type": "inbound",
+                    "inbound_qty": data["qty"],
+                })
+                details_list.append({
+                    "timestamp": datetime.now(),
+                    "sku": sku,
+                    "product_name": data["product_name"],
+                    "location": location,
+                    "type": "inbound",
+                    "inbound_qty": data["qty"],
+                })
+            
+            # Movement logging
+            try:
+                txn_num = next_inbound_transaction_num(movement_col=movement_col)
+                total_qty = sum(d["qty"] for d in sku_aggregates.values())
+                mv = build_movement_doc(
+                    movement_type="inbound",
+                    transaction_num=txn_num,
+                    qty=total_qty,
+                    location=location,
+                    details=details_list,
+                )
+                movement_col.insert_one(mv)
+            except Exception as e:
+                st.warning(
+                    "Inbound succeeded, but Movement logging failed. "
+                    f"(transaction_num may not increment) Error: {e}"
+                )
+            
+            st.session_state.inbound_single_last_msg = (
+                "success",
+                f"Session confirmed! {len(sku_aggregates)} unique SKU(s) submitted."
+            )
+            # Reset session
+            st.session_state.inbound_single_session_log = []
+            st.session_state.inbound_single_session_active = False
+            st.session_state.inbound_single_location = None
+
+        # Layout: Left column for scanning, Right column for session log
+        col_left, col_right = st.columns([1, 1], gap="large")
+        
+        with col_left:
+            st.subheader("Scan Terminal")
+            
+            # New Session button
+            if st.button("New Session", use_container_width=True, key="inbound_single_new_session"):
+                st.session_state.inbound_single_session_log = []
+                st.session_state.inbound_single_session_active = True
+                st.session_state.inbound_single_location = None
+                st.session_state.inbound_single_last_msg = (None, None)
+                st.rerun()
+            
+            if not st.session_state.inbound_single_session_active:
+                st.info("Click **New Session** to begin scanning.")
+            else:
+                # Location selection
+                if location_options:
+                    st.session_state.inbound_single_location = st.selectbox(
+                        "Select Location",
+                        options=location_options,
+                        index=None,
+                        key="inbound_single_location_select"
+                    )
+                else:
+                    st.warning("No active locations found.")
+                
+                if st.session_state.inbound_single_location:
+                    st.divider()
+                    
+                    # Display last message
+                    msg_data = st.session_state.inbound_single_last_msg
+                    if isinstance(msg_data, tuple) and len(msg_data) == 2:
+                        msg_t, msg_x = msg_data
+                        if msg_t == "success":
+                            st.success(msg_x)
+                        elif msg_t == "error":
+                            st.error(msg_x)
+                    
+                    # Scan input field with auto-focus
+                    st.text_input(
+                        "INBOUND_SINGLE_SCAN",
+                        key="inbound_single_scan_input",
+                        on_change=_process_single_scan,
+                        label_visibility="collapsed",
+                    )
+                    auto_focus_aria_label_js("INBOUND_SINGLE_SCAN")
+                    
+                    st.info("Scan SKU barcode to add to session...")
+                    
+                    st.divider()
+                    
+                    # Confirm button
+                    st.button(
+                        "Confirm Submit",
+                        use_container_width=True,
+                        type="primary",
+                        disabled=not st.session_state.inbound_single_session_log,
+                        on_click=_confirm_single_session,
+                        key="inbound_single_confirm"
+                    )
+        
+        with col_right:
+            st.subheader("Session Log")
+            if st.session_state.inbound_single_session_log:
+                # Calculate total quantity
+                total_qty = sum(item["qty"] for item in st.session_state.inbound_single_session_log)
+                st.caption(f"Items scanned: **{len(st.session_state.inbound_single_session_log)}** | Total Qty: **{total_qty}**")
+                
+                # Display session log
+                df_log = pd.DataFrame(st.session_state.inbound_single_session_log)
+                df_display = df_log.copy()
+                if "timestamp" in df_display.columns:
+                    df_display["timestamp"] = pd.to_datetime(
+                        df_display["timestamp"], errors="coerce"
+                    ).dt.strftime("%Y-%m-%d %H:%M:%S")
+                
+                st.dataframe(
+                    df_display[["timestamp", "sku", "product_name", "qty"]],
+                    use_container_width=True,
+                    height=520,
+                    hide_index=True,
+                )
+            else:
+                st.caption("No scans in this session.")
 
     with tab_manual:
         st.subheader("Manual Inbound Entry")
