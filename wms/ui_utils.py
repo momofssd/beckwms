@@ -11,26 +11,11 @@ def disable_scanner_hotkeys() -> None:
         <script>
         (function() {
             function preventScannerKeys(e) {
-                // Block F1-F12 function keys
-                if ((e.keyCode >= 112 && e.keyCode <= 123) || 
-                    (e.key && e.key.startsWith('F') && e.key.length <= 3)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                }
-                
-                // Block common dev tool shortcuts
-                if ((e.ctrlKey || e.metaKey) && e.shiftKey && 
-                    (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) { // I, J, C
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                }
-                
-                // Block Ctrl+Shift+I (Inspect)
-                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.keyCode === 73) {
+                // Only block F1-F12 function keys on keydown event
+                // Don't block keypress or keyup to allow normal typing
+                if (e.type === 'keydown' && 
+                    ((e.keyCode >= 112 && e.keyCode <= 123) || 
+                     (e.key && e.key.startsWith('F') && e.key.length <= 3))) {
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
@@ -38,15 +23,10 @@ def disable_scanner_hotkeys() -> None:
                 }
             }
             
-            // Add listener to parent document (Streamlit's main window) with highest priority
+            // Only add keydown listener to block function keys
+            // Don't intercept keypress/keyup to allow normal typing
             window.parent.document.addEventListener('keydown', preventScannerKeys, true);
-            window.parent.document.addEventListener('keypress', preventScannerKeys, true);
-            window.parent.document.addEventListener('keyup', preventScannerKeys, true);
-            
-            // Also add to current window for safety
             window.addEventListener('keydown', preventScannerKeys, true);
-            window.addEventListener('keypress', preventScannerKeys, true);
-            window.addEventListener('keyup', preventScannerKeys, true);
             
             // Disable right-click context menu
             window.parent.document.addEventListener('contextmenu', function(e) {
