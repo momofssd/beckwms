@@ -308,7 +308,8 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
             st.session_state.inbound_single_location = None
 
         # Layout: Left column for scanning, Right column for session log
-        col_left, col_right = st.columns([1, 1], gap="large")
+        # On mobile, stack vertically; on desktop, side-by-side
+        col_left, col_right = st.columns([1, 1], gap="medium")
         
         with col_left:
             st.subheader("Scan Terminal")
