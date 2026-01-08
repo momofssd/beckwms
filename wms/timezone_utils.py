@@ -5,19 +5,26 @@ from zoneinfo import ZoneInfo
 
 
 def utc_to_central(dt):
-    """Return the exact timestamp from database without timezone conversion.
+    """Convert UTC timestamp to US Central Time.
     
     Args:
         dt: datetime object (naive or UTC-aware)
         
     Returns:
-        datetime object as-is without conversion
+        datetime object in US Central Time
     """
     if dt is None:
         return None
     
-    # Return the timestamp as-is without any timezone conversion
-    return dt
+    # If datetime is naive (no timezone info), assume it's UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    
+    # Convert to US Central Time
+    central_dt = dt.astimezone(ZoneInfo("America/Chicago"))
+    
+    # Return as naive datetime (without timezone info) for display
+    return central_dt.replace(tzinfo=None)
 
 
 def now_central():
