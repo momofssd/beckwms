@@ -142,7 +142,10 @@ def run() -> None:
         )
     elif st.session_state.page == "transactions":
         transactions_page.render(
-            inventory_col=inventory_col, transactions_col=transactions_col, mm_col=mm_col
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            mm_col=mm_col,
+            locations_col=locations_col,
         )
     elif st.session_state.page == "movements":
         movements_page.render(movement_col=movement_col)

@@ -51,7 +51,7 @@ def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
     return df2
 
 
-def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
+def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
     if df is None or df.empty:
         return df
 
@@ -79,7 +79,25 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         )
         product_name = c2.text_input("Product name contains", value="").strip().upper()
         shipment_id = c3.text_input("Shipment ID contains", value="").strip().upper()
-        location = c4.text_input("Location contains", value="").strip().upper()
+        
+        # Get active locations from database
+        location_options = []
+        try:
+            locs = list(
+                locations_col.find({"active": True}, {"_id": 0, "location": 1}).sort(
+                    "location", 1
+                )
+            )
+            location_options = sorted([str(d.get("location", "")).strip().upper() for d in locs if d.get("location")])
+        except Exception:
+            pass
+        
+        selected_locations = c4.multiselect(
+            "Locations",
+            options=location_options,
+            default=[],
+            help="Search and select one or more Locations (dropdown items are checkable). Leave empty to include all Locations.",
+        )
 
         c5, c6, _ = st.columns([1, 1, 2])
         type_opt = c5.multiselect(
@@ -122,7 +140,10 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         out = out[out["sku"].isin([s.strip().upper() for s in selected_skus if s])]
     _contains("product_name", product_name)
     _contains("shipment_id", shipment_id)
-    _contains("location", location)
+    
+    if selected_locations and "location" in out.columns:
+        out["location"] = out["location"].astype(str).str.strip().str.upper()
+        out = out[out["location"].isin([s.strip().upper() for s in selected_locations if s])]
 
     if type_opt and "type" in out.columns:
         out = out[out["type"].isin(type_opt)]
@@ -143,7 +164,7 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def render(*, inventory_col, transactions_col, mm_col) -> None:
+def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
     st.title("Transactions")
 
     # Pull transactions from DB (no projection so we don't accidentally omit fields)
@@ -229,7 +250,7 @@ def render(*, inventory_col, transactions_col, mm_col) -> None:
     # Select and order required columns.
     df = df[desired_cols]
 
-    df_filtered = _apply_filters(df)
+    df_filtered = _apply_filters(df, locations_col)
 
     # Display timestamp as string for the final table.
     df_display = df_filtered.copy()
