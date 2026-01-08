@@ -14,6 +14,7 @@ except Exception:
 from wms.auth import require_auth
 from wms.db import get_collections
 from wms.session import ensure_session_state_initialized
+from wms.ui_utils import disable_scanner_hotkeys
 from wms.pages import home as home_page
 from wms.pages import inbound as inbound_page
 from wms.pages import master_data as master_data_page
@@ -53,6 +54,9 @@ def render_sidebar() -> None:
 
 def run() -> None:
     st.set_page_config(page_title="Inv WMS", layout="wide")
+    
+    # Disable F7 and F12 hotkeys from scanner devices
+    disable_scanner_hotkeys()
 
     cols = get_collections()
     inventory_col = cols["inventory"]
