@@ -12,6 +12,50 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
         return
 
     df_display = pd.DataFrame(raw_data)
+    
+    # Filter out rows with quantity <= 0
+    df_display = df_display[df_display["quantity"] > 0]
+    
+    if df_display.empty:
+        st.info("No inventory items with quantity greater than 0.")
+        return
+    
+    # Add filters for location and SKU with multi-select
+    st.subheader("Filters")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        all_locations = sorted(df_display["location"].unique().tolist())
+        selected_locations = st.multiselect(
+            "Filter by Location",
+            options=all_locations,
+            default=all_locations,
+            key="location_filter"
+        )
+    
+    with col2:
+        all_skus = sorted(df_display["sku"].unique().tolist())
+        selected_skus = st.multiselect(
+            "Filter by SKU",
+            options=all_skus,
+            default=all_skus,
+            key="sku_filter"
+        )
+    
+    # Apply filters
+    if selected_locations:
+        df_display = df_display[df_display["location"].isin(selected_locations)]
+    else:
+        df_display = pd.DataFrame(columns=df_display.columns)
+    
+    if selected_skus:
+        df_display = df_display[df_display["sku"].isin(selected_skus)]
+    else:
+        df_display = pd.DataFrame(columns=df_display.columns)
+    
+    if df_display.empty:
+        st.info("No inventory items match the selected filters.")
+        return
     if st.session_state.user_role == "admin":
         st.subheader("Inventory Editor (Admin Only)")
         st.data_editor(
