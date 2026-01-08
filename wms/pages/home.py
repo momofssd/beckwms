@@ -77,6 +77,11 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
     if df_display.empty:
         st.info("No inventory items match the selected filters.")
         return
+    
+    # Calculate and display total quantity for rendered items
+    total_qty = df_display["quantity"].sum() if "quantity" in df_display.columns else 0
+    st.metric("Total Quantity (Filtered Items)", f"{int(total_qty):,}")
+    
     if st.session_state.user_role == "admin":
         st.subheader("Inventory Editor (Admin Only)")
         st.data_editor(

@@ -24,6 +24,28 @@ from wms.pages import transactions as transactions_page
 from wms.pages import movements as movements_page
 
 
+def _reset_inbound_state() -> None:
+    """Reset all inbound-related session state."""
+    st.session_state.inbound_scan_step = 1
+    st.session_state.inbound_scanned_sku = ""
+    st.session_state.inbound_scan_sku_input = ""
+    st.session_state.inbound_single_session_log = []
+    st.session_state.inbound_single_session_active = False
+    st.session_state.inbound_single_location = None
+    st.session_state.inbound_single_last_msg = (None, None)
+
+
+def _reset_outbound_state() -> None:
+    """Reset all outbound-related session state."""
+    st.session_state.session_log = []
+    st.session_state.scan_pair = []
+    st.session_state.outbound_pending = []
+    st.session_state.outbound_confirmed = False
+    st.session_state.outbound_session_active = False
+    st.session_state.last_msg = (None, None)
+    st.session_state.current_loc = None
+
+
 def render_sidebar() -> None:
     st.sidebar.title(f"Welcome, {st.session_state.username}")
     st.sidebar.caption(
@@ -32,18 +54,30 @@ def render_sidebar() -> None:
     st.sidebar.divider()
 
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):
+        _reset_inbound_state()
+        _reset_outbound_state()
         st.session_state.page = "home"
     if st.sidebar.button("Master Data", use_container_width=True):
+        _reset_inbound_state()
+        _reset_outbound_state()
         st.session_state.page = "master_data"
     if st.sidebar.button("Inbound Entry", use_container_width=True):
+        _reset_outbound_state()
         st.session_state.page = "inbound"
     if st.sidebar.button("Outbound Processing", use_container_width=True):
+        _reset_inbound_state()
         st.session_state.page = "outbound"
     if st.sidebar.button("STO", use_container_width=True):
+        _reset_inbound_state()
+        _reset_outbound_state()
         st.session_state.page = "sto"
     if st.sidebar.button("Transactions", use_container_width=True):
+        _reset_inbound_state()
+        _reset_outbound_state()
         st.session_state.page = "transactions"
     if st.sidebar.button("Movements", use_container_width=True):
+        _reset_inbound_state()
+        _reset_outbound_state()
         st.session_state.page = "movements"
 
     st.sidebar.divider()
