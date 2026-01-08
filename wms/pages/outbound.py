@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from wms.outbound import confirm_outbound_session, process_scan
-from wms.ui_utils import auto_focus_js, to_excel
+from wms.ui_utils import auto_focus_js, to_excel, sort_locations_custom
 
 
 def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
@@ -73,9 +73,10 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
             st.session_state.current_loc = None
             return
 
-        all_locs = sorted(inventory_col.distinct("location"))
+        all_locs = inventory_col.distinct("location")
+        all_locs_sorted = sort_locations_custom(all_locs)
         st.session_state.current_loc = st.selectbox(
-            "Select Station Location", options=all_locs, index=None
+            "Select Station Location", options=all_locs_sorted, index=None
         )
         if st.session_state.current_loc:
             st.divider()

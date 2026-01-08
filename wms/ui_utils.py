@@ -72,3 +72,41 @@ def to_excel(df: pd.DataFrame) -> bytes:
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, header=True, sheet_name="WMS_Export")
     return output.getvalue()
+
+
+def sort_locations_custom(locations: list[str]) -> list[str]:
+    """Sort locations with custom priority order.
+    
+    Priority order: HOME, BOTANI GARDEN, AMAZON, then alphabetically for others.
+    
+    Args:
+        locations: List of location strings to sort
+        
+    Returns:
+        Sorted list of locations with custom priority
+    """
+    if not locations:
+        return []
+    
+    # Define priority order (case-insensitive)
+    priority_order = ["HOME", "BOTANI GARDEN", "AMAZON"]
+    
+    # Separate priority locations from others
+    priority_locs = []
+    other_locs = []
+    
+    for loc in locations:
+        loc_upper = loc.upper()
+        if loc_upper in priority_order:
+            priority_locs.append(loc)
+        else:
+            other_locs.append(loc)
+    
+    # Sort priority locations by their defined order
+    priority_locs.sort(key=lambda x: priority_order.index(x.upper()))
+    
+    # Sort other locations alphabetically
+    other_locs.sort()
+    
+    # Combine: priority first, then alphabetical
+    return priority_locs + other_locs

@@ -4,11 +4,11 @@ import pandas as pd
 import streamlit as st
 
 from wms.movement import build_movement_doc, next_inbound_transaction_num
-from wms.ui_utils import auto_focus_aria_label_js
+from wms.ui_utils import auto_focus_aria_label_js, sort_locations_custom
 
 
 def _get_location_options(locations_col) -> list[str]:
-    """Return active locations for dropdown selection."""
+    """Return active locations for dropdown selection with custom sort order."""
     try:
         locs = list(
             locations_col.find({"active": True}, {"_id": 0, "location": 1}).sort(
@@ -16,7 +16,9 @@ def _get_location_options(locations_col) -> list[str]:
             )
         )
         opts = [str(d.get("location", "")).strip().upper() for d in locs]
-        return [o for o in opts if o]
+        opts = [o for o in opts if o]
+        # Apply custom sort order
+        return sort_locations_custom(opts)
     except Exception:
         # Fail safe: if Locations collection is missing/misconfigured.
         return []

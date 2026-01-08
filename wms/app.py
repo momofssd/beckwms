@@ -56,7 +56,7 @@ def run() -> None:
     st.set_page_config(
         page_title="Inv WMS",
         layout="wide",
-        initial_sidebar_state="collapsed"
+        initial_sidebar_state="expanded"
     )
     
     # Mobile-optimized CSS
