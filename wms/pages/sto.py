@@ -26,8 +26,10 @@ def _get_location_options(locations_col) -> list[str]:
 
 
 def _get_sku_options(mm_col) -> list[str]:
+    """Return active SKU options from Material Master (MM)."""
     try:
-        skus = list(mm_col.find({}, {"_id": 0, "sku": 1}).sort("sku", 1))
+        # Only return active SKUs
+        skus = list(mm_col.find({"active": True}, {"_id": 0, "sku": 1}).sort("sku", 1))
         opts = [str(d.get("sku", "")).strip().upper() for d in skus]
         return [o for o in opts if o]
     except Exception:
@@ -92,13 +94,19 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
                 st.error("From and To locations must be different.")
                 return
 
-            # Validate SKU exists in MM (optional but consistent with inbound rules)
+            # Validate SKU exists in MM and is active
             mm_doc = mm_col.find_one(
-                {"sku": sku}, {"_id": 0, "sku": 1, "product_name": 1, "name": 1}
+                {"sku": sku}, {"_id": 0, "sku": 1, "product_name": 1, "name": 1, "active": 1}
             )
             if not mm_doc:
                 st.error(f"SKU {sku} is not registered in Material Master. Create it under Master Data.")
                 return
+            
+            # Check if SKU is active
+            if not mm_doc.get("active", True):
+                st.error(f"SKU {sku} is deactivated. Please activate it in Master Data before STO.")
+                return
+            
             product_name = str(mm_doc.get("product_name") or mm_doc.get("name") or "").strip().upper()
 
             # Check sufficient qty at from_loc
@@ -193,8 +201,35 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
 
     st.divider()
     st.subheader("Current Inventory")
+    
+    # Get all inventory items
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
+    
     if inventory_data:
-        st.dataframe(pd.DataFrame(inventory_data), use_container_width=True, hide_index=True)
+        df_inv = pd.DataFrame(inventory_data)
+        
+        # Filter: only show items with quantity > 0
+        if "quantity" in df_inv.columns:
+            df_inv = df_inv[df_inv["quantity"] > 0]
+        
+        # Filter: only show items whose SKU is active
+        if "sku" in df_inv.columns and not df_inv.empty:
+            # Get active SKUs from MM collection
+            active_skus = set()
+            for mm_doc in mm_col.find({}, {"_id": 0, "sku": 1, "active": 1}):
+                sku = str(mm_doc.get("sku", "")).strip().upper()
+                active = mm_doc.get("active", True)  # Default to True for backward compatibility
+                if active and sku:
+                    active_skus.add(sku)
+            
+            # Filter inventory to only include active SKUs
+            if active_skus:
+                df_inv["sku"] = df_inv["sku"].astype(str).str.strip().str.upper()
+                df_inv = df_inv[df_inv["sku"].isin(active_skus)]
+        
+        if not df_inv.empty:
+            st.dataframe(df_inv, use_container_width=True, hide_index=True)
+        else:
+            st.info("No active inventory items with quantity > 0.")
     else:
         st.caption("No inventory records found.")

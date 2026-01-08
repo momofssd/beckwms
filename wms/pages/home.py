@@ -7,6 +7,12 @@ from wms.movement import build_movement_doc, next_void_transaction_num
 
 def render(*, inventory_col, transactions_col, movement_col) -> None:
     st.title("Inventory Management")
+    
+    # Import mm_col to check active status
+    from wms.db import get_collections
+    cols = get_collections()
+    mm_col = cols["mm"]
+    
     raw_data = list(inventory_col.find())
     if not raw_data:
         return
@@ -15,6 +21,21 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
     
     # Filter out rows with quantity <= 0
     df_display = df_display[df_display["quantity"] > 0]
+    
+    # Filter to only show items whose SKU is active
+    if "sku" in df_display.columns and not df_display.empty:
+        # Get active SKUs from MM collection
+        active_skus = set()
+        for mm_doc in mm_col.find({}, {"_id": 0, "sku": 1, "active": 1}):
+            sku = str(mm_doc.get("sku", "")).strip().upper()
+            active = mm_doc.get("active", True)  # Default to True for backward compatibility
+            if active and sku:
+                active_skus.add(sku)
+        
+        # Filter inventory to only include active SKUs
+        if active_skus:
+            df_display["sku"] = df_display["sku"].astype(str).str.strip().str.upper()
+            df_display = df_display[df_display["sku"].isin(active_skus)]
     
     if df_display.empty:
         st.info("No inventory items with quantity greater than 0.")

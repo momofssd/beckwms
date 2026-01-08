@@ -5,6 +5,8 @@ import json
 import pandas as pd
 import streamlit as st
 
+from wms.timezone_utils import utc_to_central
+
 
 def render(*, movement_col) -> None:
     st.title("Movements")
@@ -19,9 +21,10 @@ def render(*, movement_col) -> None:
     if "_id" in df.columns:
         df = df.drop(columns=["_id"])
 
-    # Normalize timestamp for display
+    # Convert UTC timestamps to US Central Time
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = df["timestamp"].apply(utc_to_central)
 
     # --- Filters ---
     with st.container(border=True):
@@ -141,8 +144,14 @@ def render(*, movement_col) -> None:
         placeholder="e.g. 100001 or 20000001 or 3001",
     ).strip()
 
+    # Filter the dataframe to show only the selected transaction_num if provided
+    df_display = df_filtered.copy()
+    if selected_txn:
+        if "transaction_num" in df_display.columns:
+            df_display = df_display[df_display["transaction_num"].astype(str) == selected_txn]
+    
     st.dataframe(
-        df_filtered[cols + extra_cols],
+        df_display[cols + extra_cols],
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -195,9 +204,9 @@ def render(*, movement_col) -> None:
         }
         df_mv = pd.DataFrame([mv_view])
         if "timestamp" in df_mv.columns:
-            df_mv["timestamp"] = pd.to_datetime(df_mv["timestamp"], errors="coerce").dt.strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
+            df_mv["timestamp"] = pd.to_datetime(df_mv["timestamp"], errors="coerce")
+            df_mv["timestamp"] = df_mv["timestamp"].apply(utc_to_central)
+            df_mv["timestamp"] = df_mv["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
         if "delivery_locations" in df_mv.columns:
             # Render delivery locations as the destination only.
             df_mv["delivery_locations"] = df_mv["delivery_locations"].apply(_dl_to)
@@ -207,11 +216,13 @@ def render(*, movement_col) -> None:
     # Otherwise: deconstruct (normalize) the embedded details objects into a table.
     try:
         df_details = pd.json_normalize(details)
-        # nicer timestamp rendering
+        # Convert timestamps to US Central Time
         if "timestamp" in df_details.columns:
             df_details["timestamp"] = pd.to_datetime(
                 df_details["timestamp"], errors="coerce"
-            ).dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+            df_details["timestamp"] = df_details["timestamp"].apply(utc_to_central)
+            df_details["timestamp"] = df_details["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
         st.dataframe(df_details, use_container_width=True, hide_index=True)
     except Exception:
         st.code(json.dumps(details, default=str, indent=2), language="json")

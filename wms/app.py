@@ -59,103 +59,6 @@ def run() -> None:
         initial_sidebar_state="expanded"
     )
     
-    # Mobile-optimized CSS
-    st.markdown("""
-        <style>
-        /* Mobile viewport optimization */
-        @media (max-width: 768px) {
-            /* Reduce padding and margins */
-            .block-container {
-                padding: 1rem 0.5rem !important;
-                max-width: 100% !important;
-            }
-            
-            /* Optimize sidebar for mobile */
-            [data-testid="stSidebar"] {
-                width: 250px !important;
-            }
-            
-            /* Make buttons more touch-friendly */
-            .stButton button {
-                min-height: 44px !important;
-                font-size: 16px !important;
-                padding: 0.5rem 1rem !important;
-            }
-            
-            /* Optimize input fields */
-            input, select, textarea {
-                font-size: 16px !important;
-                min-height: 44px !important;
-            }
-            
-            /* Optimize dataframes */
-            [data-testid="stDataFrame"] {
-                font-size: 12px !important;
-            }
-            
-            /* Reduce title sizes */
-            h1 {
-                font-size: 1.5rem !important;
-            }
-            
-            h2 {
-                font-size: 1.25rem !important;
-            }
-            
-            h3 {
-                font-size: 1.1rem !important;
-            }
-            
-            /* Optimize columns for mobile */
-            [data-testid="column"] {
-                padding: 0 0.25rem !important;
-            }
-            
-            /* Make tabs more touch-friendly */
-            [data-baseweb="tab"] {
-                min-height: 44px !important;
-                font-size: 14px !important;
-            }
-            
-            /* Optimize number inputs */
-            [data-baseweb="input"] {
-                font-size: 16px !important;
-            }
-            
-            /* Reduce spacing between elements */
-            .element-container {
-                margin-bottom: 0.5rem !important;
-            }
-            
-            /* Optimize form spacing */
-            [data-testid="stForm"] {
-                padding: 0.5rem !important;
-            }
-            
-            /* Make dividers less prominent */
-            hr {
-                margin: 0.5rem 0 !important;
-            }
-        }
-        
-        /* General optimizations for all screen sizes */
-        /* Prevent zoom on input focus (iOS) */
-        input, select, textarea {
-            font-size: 16px !important;
-        }
-        
-        /* Improve touch targets */
-        button, a, [role="button"] {
-            min-height: 44px !important;
-            min-width: 44px !important;
-        }
-        
-        /* Optimize data editor for mobile */
-        [data-testid="stDataEditor"] {
-            overflow-x: auto !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     # Disable F7 and F12 hotkeys from scanner devices
     disable_scanner_hotkeys()
@@ -204,7 +107,7 @@ def run() -> None:
         )
     elif st.session_state.page == "transactions":
         transactions_page.render(
-            inventory_col=inventory_col, transactions_col=transactions_col
+            inventory_col=inventory_col, transactions_col=transactions_col, mm_col=mm_col
         )
     elif st.session_state.page == "movements":
         movements_page.render(movement_col=movement_col)

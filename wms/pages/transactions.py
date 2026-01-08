@@ -5,6 +5,8 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from wms.timezone_utils import utc_to_central
+
 
 def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize transaction quantity into a single signed `qty` column.
@@ -141,7 +143,7 @@ def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def render(*, inventory_col, transactions_col) -> None:
+def render(*, inventory_col, transactions_col, mm_col) -> None:
     st.title("Transactions")
 
     # Pull transactions from DB (no projection so we don't accidentally omit fields)
@@ -152,6 +154,24 @@ def render(*, inventory_col, transactions_col) -> None:
         return
 
     df = pd.DataFrame(tx_list)
+
+    # Filter out transactions for deactivated SKUs
+    # Get list of active SKUs from MM collection
+    active_skus = set()
+    for mm_doc in mm_col.find({}, {"_id": 0, "sku": 1, "active": 1}):
+        sku = str(mm_doc.get("sku", "")).strip().upper()
+        active = mm_doc.get("active", True)  # Default to True for backward compatibility
+        if active and sku:
+            active_skus.add(sku)
+
+    # Filter transactions to only include active SKUs
+    if "sku" in df.columns and active_skus:
+        df["sku"] = df["sku"].astype(str).str.strip().str.upper()
+        df = df[df["sku"].isin(active_skus)]
+
+    if df.empty:
+        st.info("No transactions found for active SKUs.")
+        return
 
     # Ensure expected columns exist (some transaction types won't have shipment_id etc.)
     desired_cols = [
@@ -200,9 +220,11 @@ def render(*, inventory_col, transactions_col) -> None:
 
     df = _compute_qty(df)
 
-    # Standardize timestamp display (keep sortable datetime for filtering).
+    # Convert UTC timestamps to US Central Time
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        # Apply timezone conversion
+        df["timestamp"] = df["timestamp"].apply(utc_to_central)
 
     # Select and order required columns.
     df = df[desired_cols]

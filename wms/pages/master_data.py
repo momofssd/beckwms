@@ -22,12 +22,17 @@ def render(*, mm_col, locations_col) -> None:
         st.subheader("Materials (MM)")
         st.caption("Inbound requires SKU to exist here.")
 
+        is_admin = (st.session_state.get("user_role") or "").strip().lower() == "admin"
+        if not is_admin:
+            st.info("Only Admin users can edit SKU active status.")
+
         with st.form("mm_create", clear_on_submit=True):
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns([2, 2, 1])
             sku = c1.text_input("SKU", help="Will be saved uppercased and trimmed.")
             name = c2.text_input(
                 "Product Name", help="Will be saved uppercased and trimmed."
             )
+            active = c3.checkbox("Active", value=True)
 
             if st.form_submit_button("Create Material", type="primary"):
                 sku_n = (sku or "").strip().upper()
@@ -44,6 +49,7 @@ def render(*, mm_col, locations_col) -> None:
                             "$set": {
                                 "sku": sku_n,
                                 "product_name": name_n,
+                                "active": bool(active),
                                 "updated_at": now,
                             },
                             "$setOnInsert": {"created_at": now},
@@ -58,16 +64,66 @@ def render(*, mm_col, locations_col) -> None:
             st.info("No materials created yet.")
         else:
             df = pd.DataFrame(mm_list)
+            
+            # Ensure 'active' column exists with default True for backward compatibility
+            if "active" not in df.columns:
+                df["active"] = True
+            else:
+                # Fill any missing/null values with True
+                df["active"] = df["active"].fillna(True)
+            
+            # Convert to boolean to ensure proper checkbox rendering
+            df["active"] = df["active"].astype(bool)
+            
+            # Sort by active status (active first) then by SKU
+            df = df.sort_values(by=["active", "sku"], ascending=[False, True])
+            
             preferred = [
                 c
-                for c in ["sku", "product_name", "created_at", "updated_at"]
+                for c in ["sku", "product_name", "active", "created_at", "updated_at"]
                 if c in df.columns
             ]
-            st.dataframe(
-                df[preferred] if preferred else df,
+            df_view = df[preferred] if preferred else df
+
+            # Inline editing for Admins: allow toggling Active directly in the table.
+            edited = st.data_editor(
+                df_view,
                 use_container_width=True,
                 hide_index=True,
+                disabled=(not is_admin),
+                column_config={
+                    "active": st.column_config.CheckboxColumn(
+                        "Active",
+                        help="Admin can enable/disable a SKU.",
+                    )
+                },
+                key="mm_editor",
             )
+
+            if st.button("Save Material Changes", type="primary", disabled=(not is_admin)):
+                # Compare original vs edited to find changes.
+                merged = df_view.merge(
+                    edited[["sku", "active"]],
+                    on="sku",
+                    how="left",
+                    suffixes=("_old", "_new"),
+                )
+                changes = merged[
+                    merged["active_old"].astype(bool) != merged["active_new"].astype(bool)
+                ]
+
+                if changes.empty:
+                    st.info("No changes to save.")
+                else:
+                    now = datetime.now()
+                    for _, r in changes.iterrows():
+                        mm_col.update_one(
+                            {"sku": str(r["sku"]).strip().upper()},
+                            {"$set": {"active": bool(r["active_new"]), "updated_at": now}},
+                            upsert=False,
+                        )
+                    st.success(f"Saved {len(changes)} change(s).")
+                    st.rerun()
 
     with tab_loc:
         st.subheader("Locations")
