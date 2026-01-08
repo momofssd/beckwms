@@ -88,6 +88,7 @@ def run() -> None:
             inventory_col=inventory_col,
             transactions_col=transactions_col,
             movement_col=movement_col,
+            mm_col=mm_col,
         )
     elif st.session_state.page == "sto":
         sto_page.render(

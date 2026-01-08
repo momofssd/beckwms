@@ -52,7 +52,7 @@ def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
     return df2
 
 
-def render(*, inventory_col, transactions_col, movement_col) -> None:
+def render(*, inventory_col, transactions_col, movement_col, mm_col) -> None:
     file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     head_l, head_r = st.columns([3, 1])
@@ -92,7 +92,7 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
                 "SCAN_ZONE",
                 key="main_scanner",
                 on_change=lambda: process_scan(
-                    inventory_col=inventory_col, transactions_col=transactions_col
+                    inventory_col=inventory_col, transactions_col=transactions_col, mm_col=mm_col
                 ),
                 label_visibility="collapsed",
             )
@@ -197,10 +197,33 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
     if inventory_data:
         df_inv = pd.DataFrame(inventory_data)
-        btn_stk.download_button(
-            "Export Current Stock",
-            data=to_excel(df_inv),
-            file_name=f"inventory_{file_ts}.xlsx",
-            use_container_width=True,
-        )
-        st.dataframe(df_inv, use_container_width=True)
+        
+        # Filter: only show items with quantity > 0
+        if "quantity" in df_inv.columns:
+            df_inv = df_inv[df_inv["quantity"] > 0]
+        
+        # Filter: only show items whose SKU is active
+        if "sku" in df_inv.columns and not df_inv.empty:
+            # Get active SKUs from MM collection
+            active_skus = set()
+            for mm_doc in mm_col.find({}, {"_id": 0, "sku": 1, "active": 1}):
+                sku = str(mm_doc.get("sku", "")).strip().upper()
+                active = mm_doc.get("active", True)  # Default to True for backward compatibility
+                if active and sku:
+                    active_skus.add(sku)
+            
+            # Filter inventory to only include active SKUs
+            if active_skus:
+                df_inv["sku"] = df_inv["sku"].astype(str).str.strip().str.upper()
+                df_inv = df_inv[df_inv["sku"].isin(active_skus)]
+        
+        if not df_inv.empty:
+            btn_stk.download_button(
+                "Export Current Stock",
+                data=to_excel(df_inv),
+                file_name=f"inventory_{file_ts}.xlsx",
+                use_container_width=True,
+            )
+            st.dataframe(df_inv, use_container_width=True)
+        else:
+            st.info("No active inventory items with quantity > 0.")

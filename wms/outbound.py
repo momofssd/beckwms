@@ -5,7 +5,7 @@ import streamlit as st
 from wms.movement import build_movement_doc, next_outbound_transaction_num
 
 
-def process_scan(*, inventory_col, transactions_col) -> None:
+def process_scan(*, inventory_col, transactions_col, mm_col) -> None:
     scan_val = st.session_state.main_scanner
     if not scan_val:
         return
@@ -32,27 +32,37 @@ def process_scan(*, inventory_col, transactions_col) -> None:
         # NOTE: Duplicated shipment IDs are allowed.
         # Multiple scanned items can share the same shipment_id and should each decrement inventory.
 
-        inv_doc = inventory_col.find_one(
-            {"sku": sku, "location": loc},
-            {"_id": 0, "product_name": 1, "quantity": 1},
+        # Validate SKU is active in Material Master
+        mm_doc = mm_col.find_one(
+            {"sku": sku},
+            {"_id": 0, "active": 1},
         )
-        qty = int((inv_doc or {}).get("quantity", 0) or 0)
-        if qty <= 0:
-            st.session_state.last_msg = ("error", f"Error: {sku} out of stock at {loc}")
+        if not mm_doc:
+            st.session_state.last_msg = ("error", f"Error: {sku} not found in Material Master")
+        elif not mm_doc.get("active", True):
+            st.session_state.last_msg = ("error", f"Error: {sku} is deactivated")
         else:
-            product_name = str((inv_doc or {}).get("product_name", "")).strip().upper()
-            entry = {
-                "timestamp": ts,
-                "sku": sku,
-                "product_name": product_name,
-                "shipment_id": tracking,
-                "location": loc,
-                "type": "outbound",
-                "outbound_qty": 1,
-            }
-            st.session_state.outbound_pending.insert(0, entry)
-            st.session_state.session_log.insert(0, entry)
-            st.session_state.last_msg = ("success", f"Queued: {sku}")
+            inv_doc = inventory_col.find_one(
+                {"sku": sku, "location": loc},
+                {"_id": 0, "product_name": 1, "quantity": 1},
+            )
+            qty = int((inv_doc or {}).get("quantity", 0) or 0)
+            if qty <= 0:
+                st.session_state.last_msg = ("error", f"Error: {sku} out of stock at {loc}")
+            else:
+                product_name = str((inv_doc or {}).get("product_name", "")).strip().upper()
+                entry = {
+                    "timestamp": ts,
+                    "sku": sku,
+                    "product_name": product_name,
+                    "shipment_id": tracking,
+                    "location": loc,
+                    "type": "outbound",
+                    "outbound_qty": 1,
+                }
+                st.session_state.outbound_pending.insert(0, entry)
+                st.session_state.session_log.insert(0, entry)
+                st.session_state.last_msg = ("success", f"Queued: {sku}")
         st.session_state.scan_pair = []
 
     st.session_state.main_scanner = ""
