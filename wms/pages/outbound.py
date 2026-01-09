@@ -169,30 +169,7 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col) -> None:
             st.caption("No scans in this session.")
 
     st.divider()
-    inv_h, btn_tx, btn_stk = st.columns([2, 1, 1])
-    inv_h.subheader("Global Inventory Dashboard")
-
-    all_tx_list = list(transactions_col.find({}, {"_id": 0}))
-    if all_tx_list:
-        df_all_tx = pd.DataFrame(all_tx_list)
-        df_all_tx = _compute_qty(df_all_tx)
-        cols = [
-            "timestamp",
-            "sku",
-            "product_name",
-            "location",
-            "type",
-            "shipment_id",
-            "qty",
-        ]
-        existing_cols = [c for c in cols if c in df_all_tx.columns]
-        df_all_tx = df_all_tx[existing_cols]
-        btn_tx.download_button(
-            "Export Transactions",
-            data=to_excel(df_all_tx),
-            file_name=f"all_transactions_{file_ts}.xlsx",
-            use_container_width=True,
-        )
+    st.subheader("Global Inventory Dashboard")
 
     inventory_data = list(inventory_col.find({}, {"_id": 0}))
     if inventory_data:
@@ -218,12 +195,6 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col) -> None:
                 df_inv = df_inv[df_inv["sku"].isin(active_skus)]
         
         if not df_inv.empty:
-            btn_stk.download_button(
-                "Export Current Stock",
-                data=to_excel(df_inv),
-                file_name=f"inventory_{file_ts}.xlsx",
-                use_container_width=True,
-            )
             st.dataframe(df_inv, use_container_width=True)
         else:
             st.info("No active inventory items with quantity > 0.")
