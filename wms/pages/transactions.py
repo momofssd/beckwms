@@ -252,6 +252,10 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
 
     df_filtered = _apply_filters(df, locations_col)
 
+    # Calculate and display total quantity for filtered items
+    total_qty = df_filtered["qty"].sum() if "qty" in df_filtered.columns else 0
+    st.metric("Total Quantity (Filtered Transactions)", f"{int(total_qty):,}")
+
     # Display timestamp as string for the final table.
     df_display = df_filtered.copy()
     if "timestamp" in df_display.columns:
