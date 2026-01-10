@@ -397,7 +397,7 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                 total_qty = sum(item["qty"] for item in st.session_state.inbound_single_session_log)
                 st.caption(f"Items scanned: **{len(st.session_state.inbound_single_session_log)}** | Total Qty: **{total_qty}**")
                 
-                # Display session log
+                # Display session log with inline delete functionality
                 df_log = pd.DataFrame(st.session_state.inbound_single_session_log)
                 df_display = df_log.copy()
                 if "timestamp" in df_display.columns:
@@ -405,12 +405,26 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                         df_display["timestamp"], errors="coerce"
                     ).dt.strftime("%Y-%m-%d %H:%M:%S")
                 
-                st.dataframe(
+                # Use data_editor for inline delete functionality
+                edited_df = st.data_editor(
                     df_display[["timestamp", "sku", "product_name", "qty"]],
                     use_container_width=True,
                     height=520,
                     hide_index=True,
+                    num_rows="dynamic",
+                    key="inbound_single_session_log_editor",
                 )
+                
+                # Sync deletions back to session_state
+                if len(edited_df) < len(df_display):
+                    # User deleted rows - update session_log
+                    remaining_indices = edited_df.index.tolist()
+                    st.session_state.inbound_single_session_log = [
+                        st.session_state.inbound_single_session_log[i] 
+                        for i in range(len(st.session_state.inbound_single_session_log))
+                        if i in remaining_indices
+                    ]
+                    st.rerun()
             else:
                 st.caption("No scans in this session.")
 

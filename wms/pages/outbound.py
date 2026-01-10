@@ -153,18 +153,54 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col) -> None:
                 use_container_width=True,
                 disabled=not st.session_state.get("outbound_confirmed"),
             )
-            # Keep the on-screen table minimal (but include timestamp)
-            base_cols = [
-                c
-                for c in ["timestamp", "sku", "product_name", "shipment_id"]
-                if c in df_display.columns
-            ]
-            st.dataframe(
-                df_display[base_cols].head(15),
-                use_container_width=True,
-                height=520,
-                hide_index=True,
-            )
+            
+            # Use data_editor for inline delete functionality (only if not confirmed)
+            if not st.session_state.get("outbound_confirmed"):
+                # Keep the on-screen table minimal (but include timestamp)
+                base_cols = [
+                    c
+                    for c in ["timestamp", "sku", "product_name", "shipment_id"]
+                    if c in df_display.columns
+                ]
+                edited_df = st.data_editor(
+                    df_display[base_cols].head(15),
+                    use_container_width=True,
+                    height=520,
+                    hide_index=True,
+                    num_rows="dynamic",
+                    key="outbound_session_log_editor",
+                )
+                
+                # Sync deletions back to session_state
+                if len(edited_df) < len(df_display[base_cols].head(15)):
+                    # User deleted rows - update session_log and outbound_pending
+                    remaining_indices = edited_df.index.tolist()
+                    st.session_state.session_log = [
+                        st.session_state.session_log[i] 
+                        for i in range(min(15, len(st.session_state.session_log)))
+                        if i in remaining_indices
+                    ] + st.session_state.session_log[15:]
+                    
+                    # Also update outbound_pending to match
+                    st.session_state.outbound_pending = [
+                        st.session_state.outbound_pending[i] 
+                        for i in range(min(15, len(st.session_state.outbound_pending)))
+                        if i in remaining_indices
+                    ] + st.session_state.outbound_pending[15:]
+                    st.rerun()
+            else:
+                # Session confirmed - show read-only dataframe
+                base_cols = [
+                    c
+                    for c in ["timestamp", "sku", "product_name", "shipment_id"]
+                    if c in df_display.columns
+                ]
+                st.dataframe(
+                    df_display[base_cols].head(15),
+                    use_container_width=True,
+                    height=520,
+                    hide_index=True,
+                )
         else:
             st.caption("No scans in this session.")
 
