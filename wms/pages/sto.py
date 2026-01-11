@@ -59,7 +59,12 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
     top_l, top_r = st.columns(2)
     selected_sku = top_l.selectbox("SKU", options=sku_options, index=None)
     if location_options:
-        from_loc = top_r.selectbox("Location From", options=location_options, index=None)
+        # Use default location if set for "Location From"
+        default_from_idx = None
+        if st.session_state.get("default_location") and st.session_state.default_location in location_options:
+            default_from_idx = location_options.index(st.session_state.default_location)
+        
+        from_loc = top_r.selectbox("Location From", options=location_options, index=default_from_idx)
         to_options = [l for l in location_options if l != from_loc] if from_loc else location_options
         to_loc = top_r.selectbox("Location To", options=to_options, index=None)
     else:

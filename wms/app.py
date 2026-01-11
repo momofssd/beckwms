@@ -51,6 +51,42 @@ def render_sidebar() -> None:
     st.sidebar.caption(
         f"Role: {st.session_state.user_role.upper() if st.session_state.user_role else ''}"
     )
+    
+    # Location selector for default location
+    cols = get_collections()
+    locations_col = cols["locations"]
+    
+    # Get active locations
+    try:
+        locs = list(
+            locations_col.find({"active": True}, {"_id": 0, "location": 1}).sort(
+                "location", 1
+            )
+        )
+        location_options = [str(d.get("location", "")).strip().upper() for d in locs]
+        location_options = [o for o in location_options if o]
+        
+        # Apply custom sort if available
+        try:
+            from wms.ui_utils import sort_locations_custom
+            location_options = sort_locations_custom(location_options)
+        except Exception:
+            pass
+        
+        if location_options:
+            st.session_state.default_location = st.sidebar.selectbox(
+                "Default Location",
+                options=[None] + location_options,
+                index=0 if st.session_state.default_location is None else (
+                    location_options.index(st.session_state.default_location) + 1
+                    if st.session_state.default_location in location_options else 0
+                ),
+                help="Set your working location. This will be the default for Inbound, Outbound, and STO operations.",
+                key="sidebar_default_location"
+            )
+    except Exception:
+        pass
+    
     st.sidebar.divider()
 
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):

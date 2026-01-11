@@ -18,6 +18,8 @@ def ensure_session_state_initialized() -> None:
         "outbound_confirmed": False,
         "outbound_session_active": False,
         "last_msg": (None, None),
+        # Default location selection for inbound/outbound/sto
+        "default_location": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:

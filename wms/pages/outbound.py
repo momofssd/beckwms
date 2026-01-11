@@ -75,8 +75,14 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col) -> None:
 
         all_locs = inventory_col.distinct("location")
         all_locs_sorted = sort_locations_custom(all_locs)
+        
+        # Use default location if set
+        default_idx = None
+        if st.session_state.get("default_location") and st.session_state.default_location in all_locs_sorted:
+            default_idx = all_locs_sorted.index(st.session_state.default_location)
+        
         st.session_state.current_loc = st.selectbox(
-            "Select Station Location", options=all_locs_sorted, index=None
+            "Select Station Location", options=all_locs_sorted, index=default_idx
         )
         if st.session_state.current_loc:
             st.divider()

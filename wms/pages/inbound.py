@@ -102,9 +102,15 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                 c1, c2 = st.columns(2)
                 qty2 = c1.number_input("Quantity", min_value=1, key="inbound_scan_qty")
                 if location_options:
+                    # Use default location if set
+                    default_idx = None
+                    if st.session_state.get("default_location") and st.session_state.default_location in location_options:
+                        default_idx = location_options.index(st.session_state.default_location)
+                    
                     loc2 = c1.selectbox(
                         "Location",
                         options=location_options,
+                        index=default_idx,
                         key="inbound_scan_loc",
                     )
                 else:
@@ -346,10 +352,15 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
             else:
                 # Location selection
                 if location_options:
+                    # Use default location if set
+                    default_idx = None
+                    if st.session_state.get("default_location") and st.session_state.default_location in location_options:
+                        default_idx = location_options.index(st.session_state.default_location)
+                    
                     st.session_state.inbound_single_location = st.selectbox(
                         "Select Location",
                         options=location_options,
-                        index=None,
+                        index=default_idx,
                         key="inbound_single_location_select"
                     )
                 else:
@@ -438,7 +449,12 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                 sku = ""
             qty = c1.number_input("Quantity", min_value=1)
             if location_options:
-                loc = c2.selectbox("Location", options=location_options)
+                # Use default location if set
+                default_idx = None
+                if st.session_state.get("default_location") and st.session_state.default_location in location_options:
+                    default_idx = location_options.index(st.session_state.default_location)
+                
+                loc = c2.selectbox("Location", options=location_options, index=default_idx)
             else:
                 loc = ""
             if st.form_submit_button("Submit Stock Entry", use_container_width=True):
