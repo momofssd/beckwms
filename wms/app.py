@@ -119,6 +119,8 @@ def render_sidebar() -> None:
     st.sidebar.divider()
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.authenticated = False
+        st.session_state.default_location = None
+        st.session_state.page = "home"
         st.rerun()
 
 
