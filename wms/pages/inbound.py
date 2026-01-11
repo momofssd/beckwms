@@ -5,6 +5,7 @@ import streamlit as st
 
 from wms.movement import build_movement_doc, next_inbound_transaction_num
 from wms.ui_utils import auto_focus_aria_label_js, sort_locations_custom
+from wms.audio_utils import play_last_4_digits
 
 
 def _get_location_options(locations_col) -> list[str]:
@@ -38,6 +39,10 @@ def _get_sku_options(mm_col) -> list[str]:
 def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_col) -> None:
     st.title("Inbound Entry")
 
+    # Initialize active tab in session state
+    if "inbound_active_tab" not in st.session_state:
+        st.session_state.inbound_active_tab = 0
+
     tab_inbound, tab_single, tab_manual = st.tabs(["Inbound Multi Entry", "Inbound Single Entry", "Manual Inbound Entry"])
 
     def _go_to_scan_step_2() -> None:
@@ -46,6 +51,8 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
         if scanned_local:
             st.session_state.inbound_scanned_sku = scanned_local
             st.session_state.inbound_scan_step = 2
+            # Play audio of last 4 digits if enabled
+            play_last_4_digits(scanned_local, st.session_state.get("audio_enabled", False))
 
     location_options = _get_location_options(locations_col)
     sku_options = _get_sku_options(mm_col)
@@ -253,6 +260,11 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                 "qty": 1,
             })
             st.session_state.inbound_single_last_msg = ("success", f"Scanned: {scanned}")
+            
+            # Store scanned value for audio playback after rerun
+            if st.session_state.get("audio_enabled", False):
+                st.session_state.inbound_single_audio_pending = scanned
+            
             st.session_state.inbound_single_scan_input = ""
 
         def _confirm_single_session() -> None:
@@ -409,6 +421,13 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                         on_click=_confirm_single_session,
                         key="inbound_single_confirm"
                     )
+        
+        # Play audio if there's a pending audio request (after page has rerendered)
+        # Place this OUTSIDE the column context to ensure it executes every time
+        if st.session_state.get("inbound_single_audio_pending"):
+            play_last_4_digits(st.session_state.inbound_single_audio_pending, True)
+            # Clear the pending flag
+            del st.session_state.inbound_single_audio_pending
         
         with col_right:
             st.subheader("Session Log")

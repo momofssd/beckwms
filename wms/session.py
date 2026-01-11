@@ -20,6 +20,8 @@ def ensure_session_state_initialized() -> None:
         "last_msg": (None, None),
         # Default location selection for inbound/outbound/sto
         "default_location": None,
+        # Audio settings for SKU scan feedback
+        "audio_enabled": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:

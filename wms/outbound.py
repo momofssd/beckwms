@@ -3,6 +3,7 @@ from datetime import datetime
 import streamlit as st
 
 from wms.movement import build_movement_doc, next_outbound_transaction_num
+from wms.audio_utils import play_last_4_digits
 
 
 def process_scan(*, inventory_col, transactions_col, mm_col) -> None:
@@ -10,7 +11,13 @@ def process_scan(*, inventory_col, transactions_col, mm_col) -> None:
     if not scan_val:
         return
 
-    st.session_state.scan_pair.append(scan_val.strip().upper())
+    scanned_value = scan_val.strip().upper()
+    st.session_state.scan_pair.append(scanned_value)
+    
+    # Play audio for SKU scan (first scan in the pair)
+    if len(st.session_state.scan_pair) == 1:
+        play_last_4_digits(scanned_value, st.session_state.get("audio_enabled", False))
+    
     if len(st.session_state.scan_pair) == 2:
         sku, tracking = st.session_state.scan_pair[0], st.session_state.scan_pair[1]
         loc = st.session_state.current_loc

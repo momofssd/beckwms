@@ -87,6 +87,14 @@ def render_sidebar() -> None:
     except Exception:
         pass
     
+    # Audio toggle for SKU scan feedback
+    st.session_state.audio_enabled = st.sidebar.toggle(
+        "🔊 Audio Feedback",
+        value=st.session_state.get("audio_enabled", False),
+        help="Enable audio playback of last 4 digits when scanning SKUs",
+        key="sidebar_audio_toggle"
+    )
+    
     st.sidebar.divider()
 
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):
