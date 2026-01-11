@@ -11,11 +11,9 @@ def disable_scanner_hotkeys() -> None:
         <script>
         (function() {
             function preventScannerKeys(e) {
-                // Only block F1-F12 function keys on keydown event
-                // Don't block keypress or keyup to allow normal typing
-                if (e.type === 'keydown' && 
-                    ((e.keyCode >= 112 && e.keyCode <= 123) || 
-                     (e.key && e.key.startsWith('F') && e.key.length <= 3))) {
+                // Only block F1-F12 function keys (keyCodes 112-123)
+                // Check keyCode first to avoid blocking regular 'f' key (keyCode 70)
+                if (e.type === 'keydown' && e.keyCode >= 112 && e.keyCode <= 123) {
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
