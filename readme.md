@@ -1,4 +1,4 @@
-# Beck WMS (Streamlit + MongoDB)
+# Beck WHS WMS (Streamlit + MongoDB)
 
 A comprehensive Warehouse Management System (WMS) built with **Streamlit** and **MongoDB** (Atlas or self-hosted). It supports inventory management, material master data, inbound/outbound operations, stock transfers, and complete transaction auditing.
 
