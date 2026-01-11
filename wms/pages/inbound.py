@@ -347,6 +347,15 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                 st.session_state.inbound_single_last_msg = (None, None)
                 st.rerun()
             
+            # Reset button - only show if session is active
+            if st.session_state.inbound_single_session_active:
+                if st.button("Reset", use_container_width=True, type="secondary", key="inbound_single_reset"):
+                    st.session_state.inbound_single_session_log = []
+                    st.session_state.inbound_single_session_active = False
+                    st.session_state.inbound_single_location = None
+                    st.session_state.inbound_single_last_msg = (None, None)
+                    st.rerun()
+            
             if not st.session_state.inbound_single_session_active:
                 st.info("Click **New Session** to begin scanning.")
             else:

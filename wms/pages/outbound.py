@@ -57,13 +57,27 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col) -> None:
 
     head_l, head_r = st.columns([3, 1])
     head_l.title("Outbound Terminal")
+    
+    # New Session button
     if head_r.button("New Session", use_container_width=True):
         st.session_state.session_log, st.session_state.scan_pair = [], []
         st.session_state.outbound_pending = []
         st.session_state.outbound_confirmed = False
         st.session_state.outbound_session_active = True
         st.session_state.last_msg = (None, None)
+        st.session_state.current_loc = None
         st.rerun()
+    
+    # Reset button - only show if session is active
+    if st.session_state.get("outbound_session_active"):
+        if head_r.button("Reset", use_container_width=True, type="secondary"):
+            st.session_state.session_log, st.session_state.scan_pair = [], []
+            st.session_state.outbound_pending = []
+            st.session_state.outbound_confirmed = False
+            st.session_state.outbound_session_active = False
+            st.session_state.last_msg = (None, None)
+            st.session_state.current_loc = None
+            st.rerun()
 
     col_left, col_right = st.columns([1, 1], gap="large")
     with col_left:
