@@ -52,48 +52,52 @@ def render_sidebar() -> None:
         f"Role: {st.session_state.user_role.upper() if st.session_state.user_role else ''}"
     )
     
-    # Location selector for default location
-    cols = get_collections()
-    locations_col = cols["locations"]
+    # Check if user is a customer
+    is_customer = (st.session_state.get("user_role") or "").strip().lower() == "customer"
     
-    # Get active locations
-    try:
-        locs = list(
-            locations_col.find({"active": True}, {"_id": 0, "location": 1}).sort(
-                "location", 1
-            )
-        )
-        location_options = [str(d.get("location", "")).strip().upper() for d in locs]
-        location_options = [o for o in location_options if o]
+    # Location selector for default location (hide for customers)
+    if not is_customer:
+        cols = get_collections()
+        locations_col = cols["locations"]
         
-        # Apply custom sort if available
+        # Get active locations
         try:
-            from wms.ui_utils import sort_locations_custom
-            location_options = sort_locations_custom(location_options)
+            locs = list(
+                locations_col.find({"active": True}, {"_id": 0, "location": 1}).sort(
+                    "location", 1
+                )
+            )
+            location_options = [str(d.get("location", "")).strip().upper() for d in locs]
+            location_options = [o for o in location_options if o]
+            
+            # Apply custom sort if available
+            try:
+                from wms.ui_utils import sort_locations_custom
+                location_options = sort_locations_custom(location_options)
+            except Exception:
+                pass
+            
+            if location_options:
+                st.session_state.default_location = st.sidebar.selectbox(
+                    "Default Location",
+                    options=[None] + location_options,
+                    index=0 if st.session_state.default_location is None else (
+                        location_options.index(st.session_state.default_location) + 1
+                        if st.session_state.default_location in location_options else 0
+                    ),
+                    help="Set your working location. This will be the default for Inbound, Outbound, and STO operations.",
+                    key="sidebar_default_location"
+                )
         except Exception:
             pass
         
-        if location_options:
-            st.session_state.default_location = st.sidebar.selectbox(
-                "Default Location",
-                options=[None] + location_options,
-                index=0 if st.session_state.default_location is None else (
-                    location_options.index(st.session_state.default_location) + 1
-                    if st.session_state.default_location in location_options else 0
-                ),
-                help="Set your working location. This will be the default for Inbound, Outbound, and STO operations.",
-                key="sidebar_default_location"
-            )
-    except Exception:
-        pass
-    
-    # Audio toggle for SKU scan feedback
-    st.session_state.audio_enabled = st.sidebar.toggle(
-        "🔊 Audio Feedback",
-        value=st.session_state.get("audio_enabled", False),
-        help="Enable audio playback of last 4 digits when scanning SKUs",
-        key="sidebar_audio_toggle"
-    )
+        # Audio toggle for SKU scan feedback
+        st.session_state.audio_enabled = st.sidebar.toggle(
+            "🔊 Audio Feedback",
+            value=st.session_state.get("audio_enabled", False),
+            help="Enable audio playback of last 4 digits when scanning SKUs",
+            key="sidebar_audio_toggle"
+        )
     
     st.sidebar.divider()
 
@@ -101,20 +105,24 @@ def render_sidebar() -> None:
         _reset_inbound_state()
         _reset_outbound_state()
         st.session_state.page = "home"
-    if st.sidebar.button("Master Data", use_container_width=True):
-        _reset_inbound_state()
-        _reset_outbound_state()
-        st.session_state.page = "master_data"
-    if st.sidebar.button("Inbound Entry", use_container_width=True):
-        _reset_outbound_state()
-        st.session_state.page = "inbound"
-    if st.sidebar.button("Outbound Processing", use_container_width=True):
-        _reset_inbound_state()
-        st.session_state.page = "outbound"
-    if st.sidebar.button("STO", use_container_width=True):
-        _reset_inbound_state()
-        _reset_outbound_state()
-        st.session_state.page = "sto"
+    
+    # Hide Master Data, Inbound, Outbound, and STO buttons for customers
+    if not is_customer:
+        if st.sidebar.button("Master Data", use_container_width=True):
+            _reset_inbound_state()
+            _reset_outbound_state()
+            st.session_state.page = "master_data"
+        if st.sidebar.button("Inbound Entry", use_container_width=True):
+            _reset_outbound_state()
+            st.session_state.page = "inbound"
+        if st.sidebar.button("Outbound Processing", use_container_width=True):
+            _reset_inbound_state()
+            st.session_state.page = "outbound"
+        if st.sidebar.button("STO", use_container_width=True):
+            _reset_inbound_state()
+            _reset_outbound_state()
+            st.session_state.page = "sto"
+    
     if st.sidebar.button("Transactions", use_container_width=True):
         _reset_inbound_state()
         _reset_outbound_state()

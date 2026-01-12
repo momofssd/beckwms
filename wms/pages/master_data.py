@@ -22,19 +22,24 @@ def render(*, mm_col, locations_col) -> None:
         st.subheader("Materials (MM)")
         st.caption("Inbound requires SKU to exist here.")
 
-        is_admin = (st.session_state.get("user_role") or "").strip().lower() == "admin"
-        if not is_admin:
+        user_role = (st.session_state.get("user_role") or "").strip().lower()
+        is_admin = user_role == "admin"
+        is_customer = user_role == "customer"
+        
+        if is_customer:
+            st.info("Customer users have view-only access to Master Data.")
+        elif not is_admin:
             st.info("Only Admin users can edit SKU active status.")
 
         with st.form("mm_create", clear_on_submit=True):
             c1, c2, c3 = st.columns([2, 2, 1])
-            sku = c1.text_input("SKU", help="Will be saved uppercased and trimmed.")
+            sku = c1.text_input("SKU", help="Will be saved uppercased and trimmed.", disabled=is_customer)
             name = c2.text_input(
-                "Product Name", help="Will be saved uppercased and trimmed."
+                "Product Name", help="Will be saved uppercased and trimmed.", disabled=is_customer
             )
-            active = c3.checkbox("Active", value=True)
+            active = c3.checkbox("Active", value=True, disabled=is_customer)
 
-            if st.form_submit_button("Create Material", type="primary"):
+            if st.form_submit_button("Create Material", type="primary", disabled=is_customer):
                 sku_n = (sku or "").strip().upper()
                 name_n = (name or "").strip().upper()
                 if not sku_n:
@@ -129,8 +134,13 @@ def render(*, mm_col, locations_col) -> None:
         st.subheader("Locations")
         st.caption("Used for inbound/outbound location selection.")
 
-        is_admin = (st.session_state.get("user_role") or "").strip().lower() == "admin"
-        if not is_admin:
+        user_role = (st.session_state.get("user_role") or "").strip().lower()
+        is_admin = user_role == "admin"
+        is_customer = user_role == "customer"
+        
+        if is_customer:
+            st.info("Customer users have view-only access to Master Data.")
+        elif not is_admin:
             st.info("Only Admin users can edit Location active status.")
 
         with st.form("location_create", clear_on_submit=True):
@@ -138,10 +148,11 @@ def render(*, mm_col, locations_col) -> None:
             loc = c1.text_input(
                 "Location",
                 help="Will be saved uppercased and trimmed (e.g., A01, RACK-1).",
+                disabled=is_customer
             )
-            active = c2.checkbox("Active", value=True)
+            active = c2.checkbox("Active", value=True, disabled=is_customer)
 
-            if st.form_submit_button("Create Location", type="primary"):
+            if st.form_submit_button("Create Location", type="primary", disabled=is_customer):
                 loc_n = (loc or "").strip().upper()
                 if not loc_n:
                     st.error("Location is required.")
