@@ -8,7 +8,7 @@ import streamlit as st
 from wms.timezone_utils import utc_to_central
 
 
-def render(*, movement_col) -> None:
+def render(*, movement_col, mm_col) -> None:
     st.title("Movements")
     st.caption("Session-level movement documents (inbound/outbound/void)")
 
@@ -17,7 +17,38 @@ def render(*, movement_col) -> None:
         st.info("No movement records found.")
         return
 
-    df = pd.DataFrame(mv_list)
+    # Get list of active SKUs from MM collection
+    active_skus = set()
+    for mm_doc in mm_col.find({}, {"_id": 0, "sku": 1, "active": 1}):
+        sku = str(mm_doc.get("sku", "")).strip().upper()
+        active = mm_doc.get("active", True)  # Default to True for backward compatibility
+        if active and sku:
+            active_skus.add(sku)
+
+    # Filter movements to only include those with active SKUs in their details
+    filtered_mv_list = []
+    for mv in mv_list:
+        details = mv.get("details") or []
+        if isinstance(details, list):
+            # Check if any detail contains an active SKU
+            has_active_sku = False
+            for detail in details:
+                if isinstance(detail, dict):
+                    sku = str(detail.get("sku", "")).strip().upper()
+                    if sku in active_skus:
+                        has_active_sku = True
+                        break
+            if has_active_sku:
+                filtered_mv_list.append(mv)
+        else:
+            # If no details, include the movement (e.g., STO movements)
+            filtered_mv_list.append(mv)
+
+    if not filtered_mv_list:
+        st.info("No movement records found for active SKUs.")
+        return
+
+    df = pd.DataFrame(filtered_mv_list)
     if "_id" in df.columns:
         df = df.drop(columns=["_id"])
 
@@ -53,6 +84,28 @@ def render(*, movement_col) -> None:
             default=types,
         )
 
+        # SKU filter - extract unique active SKUs from details
+        all_skus = set()
+        for mv in filtered_mv_list:
+            details = mv.get("details") or []
+            if isinstance(details, list):
+                for detail in details:
+                    if isinstance(detail, dict):
+                        sku = detail.get("sku")
+                        if sku:
+                            sku_upper = str(sku).strip().upper()
+                            # Only include active SKUs in the filter options
+                            if sku_upper in active_skus:
+                                all_skus.add(sku_upper)
+        
+        sku_options = sorted(list(all_skus))
+        selected_skus = st.multiselect(
+            "SKU Filter",
+            options=sku_options,
+            default=[],
+            help="Filter movements by SKU (searches within details)"
+        )
+
     df_filtered = df.copy()
     if "timestamp" in df_filtered.columns:
         ts = pd.to_datetime(df_filtered["timestamp"], errors="coerce")
@@ -61,6 +114,34 @@ def render(*, movement_col) -> None:
         df_filtered = df_filtered[
             df_filtered["movement_type"].astype(str).str.lower().isin(selected_types)
         ]
+    
+    # Apply SKU filter - filter movements that contain ALL of the selected SKUs in their details (AND condition)
+    if selected_skus:
+        filtered_txn_nums = set()
+        for mv in filtered_mv_list:
+            details = mv.get("details") or []
+            if isinstance(details, list):
+                # Collect all SKUs in this movement's details
+                movement_skus = set()
+                for detail in details:
+                    if isinstance(detail, dict):
+                        sku = str(detail.get("sku", "")).strip().upper()
+                        if sku:
+                            movement_skus.add(sku)
+                
+                # Check if ALL selected SKUs are present in this movement (AND condition)
+                if all(selected_sku in movement_skus for selected_sku in selected_skus):
+                    txn_num = mv.get("transaction_num")
+                    if txn_num is not None:
+                        filtered_txn_nums.add(str(txn_num))
+        
+        if "transaction_num" in df_filtered.columns:
+            df_filtered = df_filtered[
+                df_filtered["transaction_num"].astype(str).isin(filtered_txn_nums)
+            ]
+        else:
+            # If no transaction_num column, show no results
+            df_filtered = df_filtered.iloc[0:0]
 
     # Add a compact preview column for details; the full details are shown below.
     def _details_preview(x) -> str:
@@ -171,10 +252,9 @@ def render(*, movement_col) -> None:
         st.caption("Type a transaction_num above to view its details.")
         return
 
-    # Look up the selected movement from the *unfiltered* list so details still work
-    # even if the user changes filters after copying a transaction number.
+    # Look up the selected movement from the filtered list (only active SKUs)
     selected_mv = next(
-        (mv for mv in mv_list if str(mv.get("transaction_num", "")) == selected_txn),
+        (mv for mv in filtered_mv_list if str(mv.get("transaction_num", "")) == selected_txn),
         None,
     )
     if not selected_mv:
@@ -186,31 +266,28 @@ def render(*, movement_col) -> None:
         st.caption("No details")
         return
 
-    # For STO: do NOT deconstruct/normalize details into columns (that creates outbound.* etc.).
-    # Show a compact table that mirrors the movement DB object fields, and only includes
-    # delivery_locations as a separate field (already in the main table above).
+    # For STO: Show details with SKU and product_name from the details array
     if str((selected_mv or {}).get("movement_type", "")).strip().lower() == "sto":
-        mv_view = {
-            k: (selected_mv or {}).get(k)
-            for k in [
-                "timestamp",
-                "movement_type",
-                "transaction_num",
-                "qty",
-                "location",
-                "delivery_locations",
-            ]
-            if k in (selected_mv or {})
-        }
-        df_mv = pd.DataFrame([mv_view])
-        if "timestamp" in df_mv.columns:
-            df_mv["timestamp"] = pd.to_datetime(df_mv["timestamp"], errors="coerce")
-            df_mv["timestamp"] = df_mv["timestamp"].apply(utc_to_central)
-            df_mv["timestamp"] = df_mv["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
-        if "delivery_locations" in df_mv.columns:
-            # Render delivery locations as the destination only.
-            df_mv["delivery_locations"] = df_mv["delivery_locations"].apply(_dl_to)
-        st.dataframe(df_mv, use_container_width=True, hide_index=True)
+        # Extract SKU and product_name from details, filtering out empty objects
+        sto_details = []
+        for detail in details:
+            if isinstance(detail, dict):
+                # Only include details that have SKU (filter out empty wrapper objects)
+                sku = str(detail.get("sku", "")).strip().upper()
+                if sku:  # Only add if SKU exists
+                    sto_details.append({
+                        "sku": sku,
+                        "product_name": str(detail.get("product_name", "")).strip().upper(),
+                        "qty": detail.get("qty", 0),
+                        "location_from": str(detail.get("location_from", "")).strip().upper(),
+                        "location_to": str(detail.get("location_to", "")).strip().upper(),
+                    })
+        
+        if sto_details:
+            df_sto = pd.DataFrame(sto_details)
+            st.dataframe(df_sto, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No STO details available")
         return
 
     # Otherwise: deconstruct (normalize) the embedded details objects into a table.

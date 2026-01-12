@@ -188,9 +188,7 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
                             "location_to": to_loc_n,
                             "type": "sto",
                             "shipment_id": shipment_id,
-                        },
-                        {"outbound": outbound_tx},
-                        {"inbound": inbound_tx},
+                        }
                     ],
                 )
                 mv["delivery_locations"] = {

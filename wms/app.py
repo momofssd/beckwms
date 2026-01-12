@@ -202,4 +202,4 @@ def run() -> None:
             locations_col=locations_col,
         )
     elif st.session_state.page == "movements":
-        movements_page.render(movement_col=movement_col)
+        movements_page.render(movement_col=movement_col, mm_col=mm_col)
