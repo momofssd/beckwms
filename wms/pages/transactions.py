@@ -99,7 +99,7 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
             help="Search and select one or more Locations (dropdown items are checkable). Leave empty to include all Locations.",
         )
 
-        c5, c6, _ = st.columns([1, 1, 2])
+        c5, c6, c7 = st.columns([1, 1, 1])
         type_opt = c5.multiselect(
             "Type",
             options=sorted([t for t in df.get("type", pd.Series(dtype=str)).dropna().unique()]),
@@ -111,6 +111,13 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
             value=False,
             help="Show only rows where shipment_id appears more than once (ignores blank shipment_id).",
         )
+
+        show_sto_only = c7.checkbox(
+            "STO Transactions Only",
+            value=False,
+            help="Show only Stock Transfer Order (STO) transactions.",
+        )
+
 
         # Date range
         ts = pd.to_datetime(df["timestamp"], errors="coerce") if "timestamp" in df.columns else None
@@ -161,7 +168,12 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
         mask = non_blank & dupes.reindex(out.index, fill_value=False)
         out = out[mask]
 
+    if show_sto_only and "sto" in out.columns:
+        # Filter to show only STO transactions (where sto field is True)
+        out = out[out["sto"] == True]
+
     return out
+
 
 
 def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:

@@ -50,6 +50,8 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
 
     location_options = _get_location_options(locations_col)
     sku_options = _get_sku_options(mm_col)
+
+
     if not location_options:
         st.warning("No active Locations found. Create locations under Master Data → Locations.")
     if not sku_options:
@@ -171,8 +173,10 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
             transactions_col.insert_many([outbound_tx, inbound_tx])
 
             # Write STO movement document
+            sto_transaction_num = None
             try:
                 txn_num = next_sto_transaction_num(movement_col=movement_col)
+                sto_transaction_num = txn_num
                 mv = build_movement_doc(
                     movement_type="sto",
                     transaction_num=txn_num,
@@ -199,10 +203,56 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
             except Exception as e:
                 st.warning(f"STO completed, but movement logging failed: {e}")
 
-            st.success(f"STO completed: {sku} qty {int(qty)} from {from_loc_n} → {to_loc_n}")
+            # Store completion details in session state to display outside the form
+            st.session_state.sto_completion = {
+                "sku": sku,
+                "product_name": product_name,
+                "qty": int(qty),
+                "from_loc": from_loc_n,
+                "to_loc": to_loc_n,
+                "transaction_num": sto_transaction_num,
+                "timestamp": ts.strftime('%Y-%m-%d %H:%M:%S')
+            }
             st.rerun()
 
+    # Display completion message if available (outside the form, under STO submission section)
+    if "sto_completion" in st.session_state:
+        completion = st.session_state.sto_completion
+        
+        st.success("✅ STO Transaction Completed Successfully!")
+        
+        # Create a detailed completion message
+        st.markdown("### Transaction Details")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**SKU:**")
+            st.markdown("**Product Name:**")
+            st.markdown("**Quantity:**")
+            st.markdown("**From Location:**")
+            st.markdown("**To Location:**")
+        
+        with col2:
+            st.markdown(f"{completion['sku']}")
+            st.markdown(f"{completion['product_name']}")
+            st.markdown(f"{completion['qty']}")
+            st.markdown(f"{completion['from_loc']}")
+            st.markdown(f"{completion['to_loc']}")
+        
+        if completion.get('transaction_num'):
+            st.info(f"📋 STO Transaction Number: **{completion['transaction_num']}**")
+        
+        st.markdown(f"🕒 Timestamp: {completion['timestamp']}")
+        
+        # Add a narrower button to continue
+        col_left, col_center, col_right = st.columns([1, 1, 1])
+        with col_center:
+            if st.button("Continue", type="primary", use_container_width=True):
+                del st.session_state.sto_completion
+                st.rerun()
+
     st.divider()
+
     st.subheader("Current Inventory")
     
     # Get all inventory items
