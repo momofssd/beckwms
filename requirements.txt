@@ -5,3 +5,6 @@ openpyxl
 python-dotenv
 requests
 pdfplumber
+pyzbar
+pdf2image
+pillow
