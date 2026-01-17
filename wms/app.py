@@ -22,6 +22,7 @@ from wms.pages import outbound as outbound_page
 from wms.pages import sto as sto_page
 from wms.pages import transactions as transactions_page
 from wms.pages import movements as movements_page
+from wms.pages import shipment_tracking as shipment_tracking_page
 
 
 def _reset_inbound_state() -> None:
@@ -131,6 +132,10 @@ def render_sidebar() -> None:
         _reset_inbound_state()
         _reset_outbound_state()
         st.session_state.page = "movements"
+    if st.sidebar.button("Shipment Tracking", use_container_width=True):
+        _reset_inbound_state()
+        _reset_outbound_state()
+        st.session_state.page = "shipment_tracking"
 
     st.sidebar.divider()
     if st.sidebar.button("Logout", use_container_width=True):
@@ -203,3 +208,5 @@ def run() -> None:
         )
     elif st.session_state.page == "movements":
         movements_page.render(movement_col=movement_col, mm_col=mm_col)
+    elif st.session_state.page == "shipment_tracking":
+        shipment_tracking_page.render()

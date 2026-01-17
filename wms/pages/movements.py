@@ -84,19 +84,33 @@ def render(*, movement_col, mm_col) -> None:
             default=types,
         )
 
-        # SKU filter - extract unique active SKUs from details
+        # SKU and Location filters - extract unique values from details
         all_skus = set()
+        all_loc_from = set()
+        all_loc_to = set()
+
         for mv in filtered_mv_list:
             details = mv.get("details") or []
             if isinstance(details, list):
                 for detail in details:
                     if isinstance(detail, dict):
+                        # SKU
                         sku = detail.get("sku")
                         if sku:
                             sku_upper = str(sku).strip().upper()
                             # Only include active SKUs in the filter options
                             if sku_upper in active_skus:
                                 all_skus.add(sku_upper)
+                        
+                        # Location From
+                        lf = detail.get("location_from")
+                        if lf:
+                            all_loc_from.add(str(lf).strip().upper())
+                        
+                        # Location To
+                        lt = detail.get("location_to")
+                        if lt:
+                            all_loc_to.add(str(lt).strip().upper())
         
         sku_options = sorted(list(all_skus))
         selected_skus = st.multiselect(
@@ -104,6 +118,18 @@ def render(*, movement_col, mm_col) -> None:
             options=sku_options,
             default=[],
             help="Filter movements by SKU (searches within details)"
+        )
+
+        c_loc1, c_loc2 = st.columns(2)
+        selected_loc_from = c_loc1.multiselect(
+            "Location From",
+            options=sorted(list(all_loc_from)),
+            default=[],
+        )
+        selected_loc_to = c_loc2.multiselect(
+            "Location To",
+            options=sorted(list(all_loc_to)),
+            default=[],
         )
 
     df_filtered = df.copy()
@@ -142,6 +168,38 @@ def render(*, movement_col, mm_col) -> None:
         else:
             # If no transaction_num column, show no results
             df_filtered = df_filtered.iloc[0:0]
+
+    # Apply Location From filter (OR condition: match if any detail has one of the selected locations)
+    if selected_loc_from:
+        matching_txns = set()
+        for mv in filtered_mv_list:
+            details = mv.get("details")
+            if isinstance(details, list):
+                for d in details:
+                    if isinstance(d, dict) and str(d.get("location_from", "")).strip().upper() in selected_loc_from:
+                        matching_txns.add(str(mv.get("transaction_num")))
+                        break
+        
+        if "transaction_num" in df_filtered.columns:
+            df_filtered = df_filtered[df_filtered["transaction_num"].astype(str).isin(matching_txns)]
+        else:
+             df_filtered = df_filtered.iloc[0:0]
+
+    # Apply Location To filter (OR condition)
+    if selected_loc_to:
+        matching_txns = set()
+        for mv in filtered_mv_list:
+            details = mv.get("details")
+            if isinstance(details, list):
+                for d in details:
+                    if isinstance(d, dict) and str(d.get("location_to", "")).strip().upper() in selected_loc_to:
+                        matching_txns.add(str(mv.get("transaction_num")))
+                        break
+        
+        if "transaction_num" in df_filtered.columns:
+            df_filtered = df_filtered[df_filtered["transaction_num"].astype(str).isin(matching_txns)]
+        else:
+             df_filtered = df_filtered.iloc[0:0]
 
     # Add a compact preview column for details; the full details are shown below.
     def _details_preview(x) -> str:

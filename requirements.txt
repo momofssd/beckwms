@@ -3,3 +3,5 @@ pymongo
 pandas
 openpyxl
 python-dotenv
+requests
+pdfplumber
