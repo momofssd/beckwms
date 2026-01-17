@@ -206,7 +206,30 @@ def render() -> None:
         label_csv = st.session_state.get("label_tracking_csv", "")
         if label_csv:
             st.markdown("**Copy using the icon in the code block.**")
-            wrapped_csv = "\n".join(textwrap.wrap(label_csv, width=90))
+            # Split by comma, wrap with proper line breaks after commas
+            tracking_list = label_csv.split(",")
+            wrapped_lines = []
+            current_line = []
+            current_length = 0
+            
+            for tracking in tracking_list:
+                # Account for comma if not first item
+                item_length = len(tracking) + (1 if current_line else 0)
+                
+                if current_length + item_length > 90 and current_line:
+                    # Start new line
+                    wrapped_lines.append(",".join(current_line) + ",")
+                    current_line = [tracking]
+                    current_length = len(tracking)
+                else:
+                    current_line.append(tracking)
+                    current_length += item_length
+            
+            # Add remaining items
+            if current_line:
+                wrapped_lines.append(",".join(current_line))
+            
+            wrapped_csv = "\n".join(wrapped_lines)
             st.code(wrapped_csv, language=None)
             st.caption("Click the copy icon on the right to copy the tracking numbers.")
         else:
