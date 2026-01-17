@@ -21,6 +21,18 @@ TRACKING_REGEX = re.compile(r"\b(9\d{21,22}|\d{20,22})\b")
 TRACKING_SPACED_REGEX = re.compile(r"[\d\s-]{20,40}")
 
 
+def _is_valid_usps_tracking(number: str) -> bool:
+    """Validate USPS tracking number format."""
+    if not number or len(number) not in (20, 21, 22):
+        return False
+    
+    # Must start with valid USPS channel prefix (92, 93, 94, 95)
+    if not number.startswith(('92', '93', '94', '95')):
+        return False
+    
+    return True
+
+
 def _extract_tracking_numbers_from_text(text: str) -> list[str]:
     if not text:
         return []
@@ -32,7 +44,8 @@ def _extract_tracking_numbers_from_text(text: str) -> list[str]:
         if 20 <= len(compact) <= 22:
             numbers.append(compact)
 
-    return numbers
+    # Filter to only valid USPS tracking numbers
+    return [num for num in numbers if _is_valid_usps_tracking(num)]
 
 
 def _extract_tracking_from_barcode(pdf_bytes: bytes) -> list[str]:
