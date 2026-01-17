@@ -112,10 +112,10 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
             help="Show only rows where shipment_id appears more than once (ignores blank shipment_id).",
         )
 
-        show_sto_only = c7.checkbox(
-            "STO Transactions Only",
+        show_fba_only = c7.checkbox(
+            "FBA (Amazon) Transactions Only",
             value=False,
-            help="Show only Stock Transfer Order (STO) transactions.",
+            help="Show only transactions to or from location AMAZON.",
         )
 
 
@@ -168,9 +168,32 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
         mask = non_blank & dupes.reindex(out.index, fill_value=False)
         out = out[mask]
 
-    if show_sto_only and "sto" in out.columns:
-        # Filter to show only STO transactions (where sto field is True)
-        out = out[out["sto"] == True]
+    if show_fba_only:
+        amazon = "AMAZON"
+        masks = []
+        if "location" in out.columns:
+            out["location"] = out["location"].astype(str).str.strip().str.upper()
+            masks.append(out["location"].eq(amazon))
+        if "location_from" in out.columns:
+            out["location_from"] = (
+                out["location_from"].astype(str).str.strip().str.upper()
+            )
+            masks.append(out["location_from"].eq(amazon))
+        if "location_to" in out.columns:
+            out["location_to"] = out["location_to"].astype(str).str.strip().str.upper()
+            masks.append(out["location_to"].eq(amazon))
+        if masks:
+            out = out[pd.concat(masks, axis=1).any(axis=1)]
+
+        if "reason" in out.columns:
+            out["reason"] = out["reason"].astype(str).str.strip().str.upper()
+            reason_is_in = out["reason"].eq("STO TRANSFER IN")
+            reason_is_out = out["reason"].eq("STO TRANSFER OUT")
+            if "location_from" in out.columns:
+                location_from_is_amazon = out["location_from"].eq(amazon)
+            else:
+                location_from_is_amazon = False
+            out = out[(reason_is_in & ~location_from_is_amazon) | (reason_is_out & location_from_is_amazon)]
 
     return out
 
