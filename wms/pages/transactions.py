@@ -1,11 +1,66 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 
 import pandas as pd
 import streamlit as st
 
 from wms.timezone_utils import utc_to_central
+
+# USPS tracking number extraction patterns
+TRACKING_REGEX = re.compile(r"((?:92|93|94|95)\d{20})")
+TRACKING_SPACED_REGEX = re.compile(r"[\d\s-]{20,40}")
+
+
+def _is_valid_usps_tracking(number: str) -> bool:
+    """Validate USPS tracking number format."""
+    if not number or len(number) != 22:
+        return False
+    
+    # Must start with valid USPS channel prefix (92, 93, 94, 95)
+    if not number.startswith(('92', '93', '94', '95')):
+        return False
+    
+    return True
+
+
+def _extract_tracking_numbers_from_text(text: str) -> list[str]:
+    """Extract valid USPS tracking numbers from text (rightmost valid match)."""
+    if not text:
+        return []
+
+    numbers = []
+    
+    # Find all possible 22-digit sequences starting with 92-95
+    # Store all candidates with their positions
+    candidates = []
+    for i in range(len(text) - 21):
+        # Check if we're at the start of a valid USPS prefix
+        if text[i:i+2] in ('92', '93', '94', '95'):
+            # Extract the next 22 characters
+            potential = text[i:i+22]
+            # Check if all characters are digits
+            if potential.isdigit() and len(potential) == 22:
+                # Verify it's a valid tracking number
+                if _is_valid_usps_tracking(potential):
+                    candidates.append((i, potential))
+    
+    # Take the rightmost (last) valid match for each unique tracking number
+    if candidates:
+        # Get the last candidate (rightmost position)
+        _, tracking = candidates[-1]
+        if tracking not in numbers:
+            numbers.append(tracking)
+
+    # Also try regex patterns for spaced/hyphenated formats
+    for chunk in TRACKING_SPACED_REGEX.findall(text):
+        compact = re.sub(r"\D", "", chunk)
+        if len(compact) == 22 and compact.startswith(('92', '93', '94', '95')):
+            if _is_valid_usps_tracking(compact) and compact not in numbers:
+                numbers.append(compact)
+
+    return numbers
 
 
 def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
@@ -286,6 +341,92 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
     df = df[desired_cols]
 
     df_filtered = _apply_filters(df, locations_col)
+
+    # Shipment ID Record Button and Display
+    if st.button("📋 Shipment ID Record", help="Extract USPS tracking numbers from outbound transactions"):
+        # Filter for outbound type and non-empty shipment_id
+        outbound_df = df_filtered[
+            (df_filtered["type"] == "outbound") & 
+            (df_filtered["shipment_id"].notna()) & 
+            (df_filtered["shipment_id"].astype(str).str.strip() != "")
+        ].copy()
+        
+        if not outbound_df.empty:
+            # Extract and clean shipment IDs using proper USPS validation
+            shipment_ids = []
+            
+            for sid in outbound_df["shipment_id"].unique():
+                cleaned = str(sid).strip().upper()
+                # Extract valid USPS tracking numbers from the shipment_id text
+                extracted = _extract_tracking_numbers_from_text(cleaned)
+                for tracking in extracted:
+                    if tracking not in shipment_ids:  # Avoid duplicates
+                        shipment_ids.append(tracking)
+            
+            if shipment_ids:
+                # Initialize session state for pagination
+                if "shipment_page" not in st.session_state:
+                    st.session_state.shipment_page = 0
+                
+                # Pagination settings
+                items_per_page = 25
+                total_pages = (len(shipment_ids) + items_per_page - 1) // items_per_page
+                current_page = st.session_state.shipment_page
+                
+                # Get current page items
+                start_idx = current_page * items_per_page
+                end_idx = min(start_idx + items_per_page, len(shipment_ids))
+                current_items = shipment_ids[start_idx:end_idx]
+                
+                # Display with comma-separated values
+                st.markdown(f"**USPS Tracking Numbers (Page {current_page + 1}/{total_pages})**")
+                st.caption(f"Showing {len(current_items)} of {len(shipment_ids)} tracking numbers. Click the copy icon to copy.")
+                
+                # Format with line breaks for readability (similar to shipment_tracking.py)
+                tracking_list = current_items
+                wrapped_lines = []
+                current_line = []
+                current_length = 0
+                
+                for tracking in tracking_list:
+                    # Account for comma if not first item
+                    item_length = len(tracking) + (1 if current_line else 0)
+                    
+                    if current_length + item_length > 90 and current_line:
+                        # Start new line
+                        wrapped_lines.append(", ".join(current_line) + ",")
+                        current_line = [tracking]
+                        current_length = len(tracking)
+                    else:
+                        current_line.append(tracking)
+                        current_length += item_length
+                
+                # Add remaining items
+                if current_line:
+                    wrapped_lines.append(", ".join(current_line))
+                
+                wrapped_text = "\n".join(wrapped_lines)
+                st.code(wrapped_text, language=None)
+                
+                # Pagination controls
+                if total_pages > 1:
+                    col_prev, col_info, col_next = st.columns([1, 2, 1])
+                    with col_prev:
+                        if current_page > 0:
+                            if st.button("⬅️ Previous", key="prev_page"):
+                                st.session_state.shipment_page -= 1
+                                st.rerun()
+                    with col_info:
+                        st.caption(f"Page {current_page + 1} of {total_pages} • Total: {len(shipment_ids)} tracking numbers")
+                    with col_next:
+                        if current_page < total_pages - 1:
+                            if st.button("Next ➡️", key="next_page"):
+                                st.session_state.shipment_page += 1
+                                st.rerun()
+            else:
+                st.warning("No valid USPS tracking numbers found (must be 22 digits starting with 92, 93, 94, or 95)")
+        else:
+            st.info("No outbound transactions with shipment IDs found in filtered results")
 
     # Calculate and display total quantity for filtered items
     total_qty = df_filtered["qty"].sum() if "qty" in df_filtered.columns else 0
