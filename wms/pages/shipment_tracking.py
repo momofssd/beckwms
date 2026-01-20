@@ -30,23 +30,18 @@ def _extract_tracking_from_barcode(pdf_bytes: bytes) -> list[str]:
     
     numbers = []
     try:
-        # Convert PDF pages to images
         images = convert_from_bytes(pdf_bytes, dpi=200)
-        
         for img in images:
-            # Decode all barcodes found in the image
             barcodes = pyzbar.decode(img)
             for barcode in barcodes:
                 try:
                     data = barcode.data.decode('utf-8')
-                    # Extract numbers from barcode data
                     extracted = _extract_tracking_numbers_from_text(data)
                     numbers.extend(extracted)
                 except Exception:
                     continue
     except Exception:
         return []
-    
     return numbers
 
 
@@ -68,7 +63,6 @@ def _extract_tracking_numbers_from_pdfs(
 ) -> list[str]:
     """Extract tracking numbers using both text and barcode methods."""
     all_numbers: list[str] = []
-    
     for uploaded in files or []:
         try:
             data = uploaded.getvalue()
@@ -78,19 +72,15 @@ def _extract_tracking_numbers_from_pdfs(
             continue
         
         filename = (uploaded.name or "").lower()
-        
         if filename.endswith(".zip"):
             all_numbers.extend(_extract_tracking_numbers_from_zip(data))
             continue
 
-        # Try both methods for regular PDFs
         text_numbers = _extract_tracking_numbers_from_pdf_bytes(data)
         barcode_numbers = _extract_tracking_from_barcode(data)
-        
         all_numbers.extend(text_numbers)
         all_numbers.extend(barcode_numbers)
     
-    # Remove duplicates while preserving order
     seen = set()
     unique = []
     for num in all_numbers:
@@ -98,7 +88,6 @@ def _extract_tracking_numbers_from_pdfs(
         if compact and compact not in seen:
             seen.add(compact)
             unique.append(compact)
-    
     return unique
 
 
@@ -107,9 +96,7 @@ def _extract_tracking_numbers_from_zip(data: bytes) -> list[str]:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             for info in archive.infolist():
-                if info.is_dir():
-                    continue
-                if not info.filename.lower().endswith(".pdf"):
+                if info.is_dir() or not info.filename.lower().endswith(".pdf"):
                     continue
                 try:
                     pdf_bytes = archive.read(info)
@@ -117,53 +104,39 @@ def _extract_tracking_numbers_from_zip(data: bytes) -> list[str]:
                     continue
                 if not pdf_bytes:
                     continue
-                
-                # Try both methods
-                text_numbers = _extract_tracking_numbers_from_pdf_bytes(pdf_bytes)
-                barcode_numbers = _extract_tracking_from_barcode(pdf_bytes)
-                
-                numbers.extend(text_numbers)
-                numbers.extend(barcode_numbers)
+                numbers.extend(_extract_tracking_numbers_from_pdf_bytes(pdf_bytes))
+                numbers.extend(_extract_tracking_from_barcode(pdf_bytes))
     except Exception:
         return []
     return numbers
-
-
-def _format_tracking_csv(numbers: list[str]) -> str:
-    return ",".join(numbers)
 
 
 def render() -> None:
     st.title("Shipment Tracking")
     st.caption("Extract tracking numbers from labels using text extraction and barcode scanning.")
 
-    if not BARCODE_AVAILABLE:
-        st.warning(
-            "Barcode scanning unavailable. Install: pip install pyzbar pdf2image pillow"
-        )
-
+    # --- Initialize Session States ---
     if "shipment_uploader_key" not in st.session_state:
         st.session_state.shipment_uploader_key = 0
+    if "label_tracking_page" not in st.session_state:
+        st.session_state.label_tracking_page = 0
+
+    if not BARCODE_AVAILABLE:
+        st.warning("Barcode scanning unavailable. Install: pip install pyzbar pdf2image pillow")
 
     label_numbers = st.session_state.get("label_tracking_numbers") or []
 
     header_left, header_right = st.columns([3, 1], gap="medium")
     with header_left:
         st.subheader("Track by Label (PDF)")
-        st.caption(
-            "Upload one or more label PDFs to extract tracking numbers. "
-            "Uses text extraction and barcode scanning for image-only PDFs."
-        )
+        st.caption("Upload label PDFs or ZIPs. Images-only PDFs are scanned via barcode.")
+    
     with header_right:
         if st.button("Reset", use_container_width=True):
-            for state_key in (
-                "label_tracking_numbers",
-                "label_tracking_csv",
-            ):
-                st.session_state.pop(state_key, None)
-            st.session_state.label_tracking_csv = ""
+            st.session_state.pop("label_tracking_numbers", None)
+            st.session_state.label_tracking_page = 0
             st.session_state.shipment_uploader_key += 1
-            label_numbers = []
+            st.rerun()
 
     st.divider()
 
@@ -179,10 +152,10 @@ def render() -> None:
         )
 
         if st.button("Extract Tracking Numbers", use_container_width=True):
-            extracted_numbers = _extract_tracking_numbers_from_pdfs(uploaded_files)
-            st.session_state.label_tracking_numbers = extracted_numbers
-            label_numbers = extracted_numbers
-            st.session_state.label_tracking_csv = _format_tracking_csv(label_numbers)
+            extracted = _extract_tracking_numbers_from_pdfs(uploaded_files)
+            st.session_state.label_tracking_numbers = extracted
+            st.session_state.label_tracking_page = 0
+            st.rerun()
 
         if label_numbers:
             st.success(f"Found {len(label_numbers)} tracking number(s).")
@@ -191,34 +164,64 @@ def render() -> None:
 
     with right_col:
         st.markdown("**Output**")
-        label_csv = st.session_state.get("label_tracking_csv", "")
-        if label_csv:
-            st.markdown("**Copy using the icon in the code block.**")
-            # Split by comma, wrap with proper line breaks after commas
-            tracking_list = label_csv.split(",")
+        if label_numbers:
+            # --- Pagination Logic ---
+            items_per_page = 25
+            total_pages = (len(label_numbers) + items_per_page - 1) // items_per_page
+            current_page = st.session_state.label_tracking_page
+
+            # Safety check
+            if current_page >= total_pages:
+                current_page = 0
+                st.session_state.label_tracking_page = 0
+
+            start_idx = current_page * items_per_page
+            end_idx = min(start_idx + items_per_page, len(label_numbers))
+            current_batch = label_numbers[start_idx:end_idx]
+
+            st.markdown(f"**Batch {current_page + 1} of {total_pages}**")
+            
+            # Formatting the Code block
             wrapped_lines = []
             current_line = []
             current_length = 0
-            
-            for tracking in tracking_list:
-                # Account for comma if not first item
-                item_length = len(tracking) + (1 if current_line else 0)
-                
-                if current_length + item_length > 90 and current_line:
-                    # Start new line
-                    wrapped_lines.append(",".join(current_line) + ",")
+            for tracking in current_batch:
+                item_len = len(tracking) + (2 if current_line else 0)
+                if current_length + item_len > 90 and current_line:
+                    wrapped_lines.append(", ".join(current_line) + ",")
                     current_line = [tracking]
                     current_length = len(tracking)
                 else:
                     current_line.append(tracking)
-                    current_length += item_length
-            
-            # Add remaining items
+                    current_length += item_len
             if current_line:
-                wrapped_lines.append(",".join(current_line))
+                wrapped_lines.append(", ".join(current_line))
             
-            wrapped_csv = "\n".join(wrapped_lines)
-            st.code(wrapped_csv, language=None)
-            st.caption("Click the copy icon on the right to copy the tracking numbers.")
+            st.code("\n".join(wrapped_lines), language=None)
+            st.caption("Click the copy icon to copy this batch.")
+
+            # --- USPS Web Tracking Button (Batch-Specific) ---
+            encoded_labels = "%2C".join(current_batch)
+            usps_url = f"https://tools.usps.com/go/TrackConfirmAction?tRef=fullpage&tLc=19&text28777=&tLabels={encoded_labels}&tABt=false"
+            
+            st.link_button(
+                f"🚚 USPS Web Tracking (Batch {current_page + 1})", 
+                usps_url, 
+                use_container_width=True,
+                help=f"Track the {len(current_batch)} numbers visible in this batch."
+            )
+
+            # Pagination Controls
+            if total_pages > 1:
+                p1, p2, p3 = st.columns([1, 2, 1])
+                if current_page > 0:
+                    if p1.button("⬅️ Previous", key="label_prev"):
+                        st.session_state.label_tracking_page -= 1
+                        st.rerun()
+                p2.markdown(f"<p style='text-align: center;'>Page {current_page + 1}/{total_pages}</p>", unsafe_allow_html=True)
+                if current_page < total_pages - 1:
+                    if p3.button("Next ➡️", key="label_next"):
+                        st.session_state.label_tracking_page += 1
+                        st.rerun()
         else:
             st.info("No tracking numbers extracted yet.")
