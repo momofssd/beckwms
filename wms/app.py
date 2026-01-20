@@ -47,6 +47,19 @@ def _reset_outbound_state() -> None:
     st.session_state.current_loc = None
 
 
+def _reset_transactions_state() -> None:
+    """Reset all transactions-related session state (shipment ID record)."""
+    st.session_state.show_shipment_record = False
+    st.session_state.shipment_page = 0
+
+
+def _reset_shipment_tracking_state() -> None:
+    """Reset all shipment tracking-related session state."""
+    st.session_state.shipment_uploader_key = 0
+    st.session_state.label_tracking_page = 0
+    st.session_state.label_tracking_numbers = []
+
+
 def render_sidebar() -> None:
     st.sidebar.title(f"Welcome, {st.session_state.username}")
     st.sidebar.caption(
@@ -105,6 +118,7 @@ def render_sidebar() -> None:
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):
         _reset_inbound_state()
         _reset_outbound_state()
+        _reset_transactions_state()
         st.session_state.page = "home"
     
     # Hide Master Data, Inbound, Outbound, and STO buttons for customers
@@ -112,16 +126,20 @@ def render_sidebar() -> None:
         if st.sidebar.button("Master Data", use_container_width=True):
             _reset_inbound_state()
             _reset_outbound_state()
+            _reset_transactions_state()
             st.session_state.page = "master_data"
         if st.sidebar.button("Inbound Entry", use_container_width=True):
             _reset_outbound_state()
+            _reset_transactions_state()
             st.session_state.page = "inbound"
         if st.sidebar.button("Outbound Processing", use_container_width=True):
             _reset_inbound_state()
+            _reset_transactions_state()
             st.session_state.page = "outbound"
         if st.sidebar.button("STO", use_container_width=True):
             _reset_inbound_state()
             _reset_outbound_state()
+            _reset_transactions_state()
             st.session_state.page = "sto"
     
     if st.sidebar.button("Transactions", use_container_width=True):
@@ -131,10 +149,12 @@ def render_sidebar() -> None:
     if st.sidebar.button("Movements", use_container_width=True):
         _reset_inbound_state()
         _reset_outbound_state()
+        _reset_transactions_state()
         st.session_state.page = "movements"
     if st.sidebar.button("Shipment Tracking", use_container_width=True):
         _reset_inbound_state()
         _reset_outbound_state()
+        _reset_transactions_state()
         st.session_state.page = "shipment_tracking"
 
     st.sidebar.divider()
@@ -142,6 +162,10 @@ def render_sidebar() -> None:
         st.session_state.authenticated = False
         st.session_state.default_location = None
         st.session_state.page = "home"
+        _reset_inbound_state()
+        _reset_outbound_state()
+        _reset_transactions_state()
+        _reset_shipment_tracking_state()
         st.rerun()
 
 

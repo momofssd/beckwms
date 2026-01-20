@@ -330,7 +330,7 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
                 if current_items:
                     encoded_labels = "%2C".join(current_items)
                     usps_url = f"https://tools.usps.com/go/TrackConfirmAction?tRef=fullpage&tLc=19&text28777=&tLabels={encoded_labels}&tABt=false"
-                    st.link_button(f"🚚 USPS Web Tracking (Batch {current_page + 1})", usps_url, use_container_width=True)
+                    st.link_button(f"USPS Web Tracking (Batch {current_page + 1})", usps_url, use_container_width=True)
                 
                 # Pagination Controls
                 if total_pages > 1:
