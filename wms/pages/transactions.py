@@ -13,9 +13,9 @@ def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize transaction quantity into a single signed `qty` column.
 
     Rules:
-    - inbound  -> qty = +inbound_qty
+    - inbound   -> qty = +inbound_qty
     - outbound -> qty = -outbound_qty
-    - void     -> qty = -void_qty
+    - void      -> qty = -void_qty
     """
     if df is None or df.empty:
         return df
@@ -100,7 +100,8 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
             help="Search and select one or more Locations (dropdown items are checkable). Leave empty to include all Locations.",
         )
 
-        c5, c6, c7 = st.columns([1, 1, 1])
+        # Added a 4th column for the new criteria
+        c5, c6, c7, c8 = st.columns(4)
         type_opt = c5.multiselect(
             "Type",
             options=sorted([t for t in df.get("type", pd.Series(dtype=str)).dropna().unique()]),
@@ -117,6 +118,13 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
             "FBA (Amazon) Transactions Only",
             value=False,
             help="Show only transactions to or from location AMAZON.",
+        )
+
+        # NEW FILTER CHECKBOX
+        show_missing_to = c8.checkbox(
+            "Fulfillment",
+            value=False,
+            help="Filter for outbound transactions where the 'To' location is None or empty."
         )
 
 
@@ -196,8 +204,19 @@ def _apply_filters(df: pd.DataFrame, locations_col) -> pd.DataFrame:
                 location_from_is_amazon = False
             out = out[(reason_is_in & ~location_from_is_amazon) | (reason_is_out & location_from_is_amazon)]
 
-    return out
+    # LOGIC FOR NEW FILTER CRITERIA
+    if show_missing_to:
+        if "type" in out.columns and "location_to" in out.columns:
+            is_outbound = out["type"].astype(str).str.lower().eq("outbound")
+            # Filter for None (NaN), literal "None", or empty strings
+            is_none_to = (
+                out["location_to"].isna() | 
+                out["location_to"].astype(str).str.strip().eq("") | 
+                out["location_to"].astype(str).str.lower().eq("none")
+            )
+            out = out[is_outbound & is_none_to]
 
+    return out
 
 
 def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
