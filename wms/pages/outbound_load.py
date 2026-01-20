@@ -1,11 +1,13 @@
+from __future__ import annotations
+
+import io
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
-from wms.outbound import confirm_outbound_session, process_scan
-from wms.ui_utils import auto_focus_js, to_excel, sort_locations_custom
 from wms.movement import build_movement_doc, next_outbound_transaction_num
+from wms.ui_utils import auto_focus_js, to_excel, sort_locations_custom
 from wms.ups_tracking_pattern import _extract_tracking_numbers_from_text
 
 # Barcode scanning imports
@@ -16,281 +18,6 @@ try:
     BARCODE_AVAILABLE = True
 except ImportError:
     BARCODE_AVAILABLE = False
-
-
-def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize transaction quantity into a single signed `qty` column.
-
-    Rules:
-    - inbound  -> qty = +inbound_qty
-    - outbound -> qty = -outbound_qty
-
-    This keeps exports consistent and avoids separate inbound/outbound columns.
-    """
-    if df is None or df.empty:
-        return df
-
-    df2 = df.copy()
-    if "qty" not in df2.columns:
-        df2["qty"] = 0
-
-    inbound_mask = df2.get("type").eq("inbound") if "type" in df2.columns else False
-    outbound_mask = df2.get("type").eq("outbound") if "type" in df2.columns else False
-    void_mask = df2.get("type").eq("void") if "type" in df2.columns else False
-
-    if "inbound_qty" in df2.columns:
-        df2.loc[inbound_mask, "qty"] = pd.to_numeric(
-            df2.loc[inbound_mask, "inbound_qty"], errors="coerce"
-        ).fillna(0)
-    if "outbound_qty" in df2.columns:
-        df2.loc[outbound_mask, "qty"] = -pd.to_numeric(
-            df2.loc[outbound_mask, "outbound_qty"], errors="coerce"
-        ).fillna(0)
-
-    # Inventory editor adjustments (reductions/deletions) are logged as type=void.
-    # Export these as negative quantities.
-    if "void_qty" in df2.columns:
-        df2.loc[void_mask, "qty"] = -pd.to_numeric(
-            df2.loc[void_mask, "void_qty"], errors="coerce"
-        ).fillna(0)
-
-    # Keep qty as an integer when possible for nicer Excel output.
-    try:
-        df2["qty"] = df2["qty"].astype(int)
-    except Exception:
-        pass
-
-    return df2
-
-
-def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_col) -> None:
-    file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    st.title("Outbound Processing")
-    
-    # Create tabs
-    tab1, tab2 = st.tabs(["📦 Scan Outbound", "📄 Outbound Load"])
-    
-    with tab1:
-        render_scan_outbound(
-            inventory_col=inventory_col,
-            transactions_col=transactions_col,
-            movement_col=movement_col,
-            mm_col=mm_col,
-            file_ts=file_ts
-        )
-    
-    with tab2:
-        render_outbound_load(
-            inventory_col=inventory_col,
-            transactions_col=transactions_col,
-            movement_col=movement_col,
-            mm_col=mm_col,
-            locations_col=locations_col,
-            file_ts=file_ts
-        )
-
-
-def render_scan_outbound(*, inventory_col, transactions_col, movement_col, mm_col, file_ts) -> None:
-    head_l, head_r = st.columns([3, 1])
-    # head_l.subheader("Scan Terminal")
-    
-    # New Session button
-    if head_r.button("New Session", use_container_width=True, key="scan_new_session"):
-        st.session_state.session_log, st.session_state.scan_pair = [], []
-        st.session_state.outbound_pending = []
-        st.session_state.outbound_confirmed = False
-        st.session_state.outbound_session_active = True
-        st.session_state.last_msg = (None, None)
-        st.session_state.current_loc = None
-        st.rerun()
-    
-    # Reset button - only show if session is active
-    if st.session_state.get("outbound_session_active"):
-        if head_r.button("Reset", use_container_width=True, type="secondary"):
-            st.session_state.session_log, st.session_state.scan_pair = [], []
-            st.session_state.outbound_pending = []
-            st.session_state.outbound_confirmed = False
-            st.session_state.outbound_session_active = False
-            st.session_state.last_msg = (None, None)
-            st.session_state.current_loc = None
-            st.rerun()
-
-    col_left, col_right = st.columns([1, 1], gap="large")
-    with col_left:
-        st.subheader("Scan Terminal")
-        if not st.session_state.get("outbound_session_active"):
-            st.info("Click **New Session** to begin scanning.")
-            st.session_state.current_loc = None
-            return
-
-        all_locs = inventory_col.distinct("location")
-        all_locs_sorted = sort_locations_custom(all_locs)
-        
-        # Use default location if set
-        default_idx = None
-        if st.session_state.get("default_location") and st.session_state.default_location in all_locs_sorted:
-            default_idx = all_locs_sorted.index(st.session_state.default_location)
-        
-        st.session_state.current_loc = st.selectbox(
-            "Select Station Location", options=all_locs_sorted, index=default_idx
-        )
-        if st.session_state.current_loc:
-            st.divider()
-            msg_data = st.session_state.get("last_msg", (None, None))
-            if isinstance(msg_data, tuple) and len(msg_data) == 2:
-                msg_t, msg_x = msg_data
-                if msg_t == "success":
-                    st.success(msg_x)
-                if msg_t == "error":
-                    st.error(msg_x)
-
-            st.text_input(
-                "SCAN_ZONE",
-                key="main_scanner",
-                on_change=lambda: process_scan(
-                    inventory_col=inventory_col, transactions_col=transactions_col, mm_col=mm_col
-                ),
-                label_visibility="collapsed",
-            )
-            auto_focus_js()
-            if len(st.session_state.scan_pair) == 0:
-                st.info("Awaiting SKU scan...")
-            else:
-                st.warning(
-                    f"SKU {st.session_state.scan_pair[0]} captured. Scan Shipment ID now."
-                )
-
-            st.divider()
-            st.button(
-                "Confirm Session Complete",
-                use_container_width=True,
-                type="primary",
-                disabled=(
-                    st.session_state.get("outbound_confirmed")
-                    or not st.session_state.get("outbound_pending")
-                ),
-                on_click=lambda: confirm_outbound_session(
-                    inventory_col=inventory_col,
-                    transactions_col=transactions_col,
-                    movement_col=movement_col,
-                ),
-            )
-
-    with col_right:
-        st.subheader("Live Session Log")
-        if st.session_state.session_log:
-            # Each entry in `session_log` is one scanned/processed item (one row).
-            st.caption(f"Items scanned this session: **{len(st.session_state.session_log)}**")
-            df_s = pd.DataFrame(st.session_state.session_log)
-            # Include optional columns like `product_name` if present (older logs may not have it)
-            preferred_cols = [
-                "timestamp",
-                "sku",
-                "product_name",
-                "shipment_id",
-                "location",
-                "type",
-                "qty",
-            ]
-            df_s = _compute_qty(df_s)
-            df_s = df_s[[c for c in preferred_cols if c in df_s.columns]]
-
-            # Make timestamps human-readable for the on-screen table while keeping
-            # the raw datetime in the export.
-            df_display = df_s.copy()
-            if "timestamp" in df_display.columns:
-                df_display["timestamp"] = pd.to_datetime(
-                    df_display["timestamp"], errors="coerce"
-                ).dt.strftime("%Y-%m-%d %H:%M:%S")
-            st.download_button(
-                "Export Session Data",
-                data=to_excel(df_s),
-                file_name=f"session_{file_ts}.xlsx",
-                use_container_width=True,
-                disabled=not st.session_state.get("outbound_confirmed"),
-            )
-            
-            # Use data_editor for inline delete functionality (only if not confirmed)
-            if not st.session_state.get("outbound_confirmed"):
-                # Keep the on-screen table minimal (but include timestamp)
-                base_cols = [
-                    c
-                    for c in ["timestamp", "sku", "product_name", "shipment_id"]
-                    if c in df_display.columns
-                ]
-                edited_df = st.data_editor(
-                    df_display[base_cols].head(15),
-                    use_container_width=True,
-                    height=520,
-                    hide_index=True,
-                    num_rows="dynamic",
-                    key="outbound_session_log_editor",
-                )
-                
-                # Sync deletions back to session_state
-                if len(edited_df) < len(df_display[base_cols].head(15)):
-                    # User deleted rows - update session_log and outbound_pending
-                    remaining_indices = edited_df.index.tolist()
-                    st.session_state.session_log = [
-                        st.session_state.session_log[i] 
-                        for i in range(min(15, len(st.session_state.session_log)))
-                        if i in remaining_indices
-                    ] + st.session_state.session_log[15:]
-                    
-                    # Also update outbound_pending to match
-                    st.session_state.outbound_pending = [
-                        st.session_state.outbound_pending[i] 
-                        for i in range(min(15, len(st.session_state.outbound_pending)))
-                        if i in remaining_indices
-                    ] + st.session_state.outbound_pending[15:]
-                    st.rerun()
-            else:
-                # Session confirmed - show read-only dataframe
-                base_cols = [
-                    c
-                    for c in ["timestamp", "sku", "product_name", "shipment_id"]
-                    if c in df_display.columns
-                ]
-                st.dataframe(
-                    df_display[base_cols].head(15),
-                    use_container_width=True,
-                    height=520,
-                    hide_index=True,
-                )
-        else:
-            st.caption("No scans in this session.")
-
-    st.divider()
-    st.subheader("Global Inventory Dashboard")
-
-    inventory_data = list(inventory_col.find({}, {"_id": 0}))
-    if inventory_data:
-        df_inv = pd.DataFrame(inventory_data)
-        
-        # Filter: only show items with quantity > 0
-        if "quantity" in df_inv.columns:
-            df_inv = df_inv[df_inv["quantity"] > 0]
-        
-        # Filter: only show items whose SKU is active
-        if "sku" in df_inv.columns and not df_inv.empty:
-            # Get active SKUs from MM collection
-            active_skus = set()
-            for mm_doc in mm_col.find({}, {"_id": 0, "sku": 1, "active": 1}):
-                sku = str(mm_doc.get("sku", "")).strip().upper()
-                active = mm_doc.get("active", True)  # Default to True for backward compatibility
-                if active and sku:
-                    active_skus.add(sku)
-            
-            # Filter inventory to only include active SKUs
-            if active_skus:
-                df_inv["sku"] = df_inv["sku"].astype(str).str.strip().str.upper()
-                df_inv = df_inv[df_inv["sku"].isin(active_skus)]
-        
-        if not df_inv.empty:
-            st.dataframe(df_inv, use_container_width=True)
-        else:
-            st.info("No active inventory items with quantity > 0.")
 
 
 def _extract_barcodes_from_pdf(pdf_bytes: bytes) -> list[dict]:
@@ -337,6 +64,30 @@ def _extract_barcodes_from_pdf(pdf_bytes: bytes) -> list[dict]:
         return []
     
     return results
+
+
+def _compute_qty(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize transaction quantity into a single signed `qty` column."""
+    if df is None or df.empty:
+        return df
+
+    df2 = df.copy()
+    if "qty" not in df2.columns:
+        df2["qty"] = 0
+
+    outbound_mask = df2.get("type").eq("outbound") if "type" in df2.columns else False
+
+    if "outbound_qty" in df2.columns:
+        df2.loc[outbound_mask, "qty"] = -pd.to_numeric(
+            df2.loc[outbound_mask, "outbound_qty"], errors="coerce"
+        ).fillna(0)
+
+    try:
+        df2["qty"] = df2["qty"].astype(int)
+    except Exception:
+        pass
+
+    return df2
 
 
 def confirm_outbound_load_session(*, inventory_col, transactions_col, movement_col) -> None:
@@ -393,9 +144,11 @@ def confirm_outbound_load_session(*, inventory_col, transactions_col, movement_c
     st.session_state.outbound_load_last_msg = ("success", f"Confirmed session: {len(pending)} item(s) applied.")
 
 
-def render_outbound_load(*, inventory_col, transactions_col, movement_col, mm_col, locations_col, file_ts) -> None:
+def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_col) -> None:
+    file_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     head_l, head_r = st.columns([3, 1])
-    head_l.subheader("Batch Upload Terminal")
+    head_l.title("Outbound Load Terminal")
     
     # New Session button
     if head_r.button("New Session", use_container_width=True, key="outbound_load_new_session"):
@@ -425,6 +178,8 @@ def render_outbound_load(*, inventory_col, transactions_col, movement_col, mm_co
     col_left, col_right = st.columns([1, 1], gap="large")
     
     with col_left:
+        st.subheader("Batch Upload Terminal")
+        
         if not st.session_state.get("outbound_load_session_active"):
             st.info("Click **New Session** to begin batch upload.")
             return
@@ -619,7 +374,7 @@ def render_outbound_load(*, inventory_col, transactions_col, movement_col, mm_co
                     if c in df_display.columns
                 ]
                 edited_df = st.data_editor(
-                    df_display[base_cols],
+                    df_display[base_cols].head(15),
                     use_container_width=True,
                     height=520,
                     hide_index=True,
@@ -628,17 +383,19 @@ def render_outbound_load(*, inventory_col, transactions_col, movement_col, mm_co
                 )
                 
                 # Sync deletions back to session_state
-                if len(edited_df) < len(df_display[base_cols]):
+                if len(edited_df) < len(df_display[base_cols].head(15)):
                     remaining_indices = edited_df.index.tolist()
                     st.session_state.outbound_load_session_log = [
                         st.session_state.outbound_load_session_log[i] 
-                        for i in remaining_indices
-                    ]
+                        for i in range(min(15, len(st.session_state.outbound_load_session_log)))
+                        if i in remaining_indices
+                    ] + st.session_state.outbound_load_session_log[15:]
                     
                     st.session_state.outbound_load_pending = [
                         st.session_state.outbound_load_pending[i] 
-                        for i in remaining_indices
-                    ]
+                        for i in range(min(15, len(st.session_state.outbound_load_pending)))
+                        if i in remaining_indices
+                    ] + st.session_state.outbound_load_pending[15:]
                     st.rerun()
             else:
                 base_cols = [
@@ -647,7 +404,7 @@ def render_outbound_load(*, inventory_col, transactions_col, movement_col, mm_co
                     if c in df_display.columns
                 ]
                 st.dataframe(
-                    df_display[base_cols],
+                    df_display[base_cols].head(15),
                     use_container_width=True,
                     height=520,
                     hide_index=True,

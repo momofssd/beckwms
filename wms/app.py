@@ -19,6 +19,7 @@ from wms.pages import home as home_page
 from wms.pages import inbound as inbound_page
 from wms.pages import master_data as master_data_page
 from wms.pages import outbound as outbound_page
+from wms.pages import outbound_load as outbound_load_page
 from wms.pages import sto as sto_page
 from wms.pages import transactions as transactions_page
 from wms.pages import movements as movements_page
@@ -45,6 +46,18 @@ def _reset_outbound_state() -> None:
     st.session_state.outbound_session_active = False
     st.session_state.last_msg = (None, None)
     st.session_state.current_loc = None
+
+
+def _reset_outbound_load_state() -> None:
+    """Reset all outbound load-related session state."""
+    st.session_state.outbound_load_session_log = []
+    st.session_state.outbound_load_pending = []
+    st.session_state.outbound_load_confirmed = False
+    st.session_state.outbound_load_session_active = False
+    st.session_state.outbound_load_last_msg = (None, None)
+    st.session_state.outbound_load_location = None
+    st.session_state.outbound_load_sku = None
+    st.session_state.outbound_load_extracted_barcodes = []
 
 
 def _reset_transactions_state() -> None:
@@ -206,6 +219,15 @@ def run() -> None:
             transactions_col=transactions_col,
             movement_col=movement_col,
             mm_col=mm_col,
+            locations_col=locations_col,
+        )
+    elif st.session_state.page == "outbound_load":
+        outbound_load_page.render(
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            movement_col=movement_col,
+            mm_col=mm_col,
+            locations_col=locations_col,
         )
     elif st.session_state.page == "sto":
         sto_page.render(
