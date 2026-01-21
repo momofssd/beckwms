@@ -147,6 +147,7 @@ def render_sidebar() -> None:
             st.session_state.page = "inbound"
         if st.sidebar.button("Outbound Processing", use_container_width=True):
             _reset_inbound_state()
+            _reset_outbound_load_state()
             _reset_transactions_state()
             st.session_state.page = "outbound"
         if st.sidebar.button("STO", use_container_width=True):
