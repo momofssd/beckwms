@@ -366,13 +366,18 @@ def confirm_outbound_load_session(*, inventory_col, transactions_col, movement_c
             )
             return
 
-    # Record transactions after inventory succeeded
-    transactions_col.insert_many([p.copy() for p in pending])
-
-    # Record movement document (session-level)
+    # Record movement document first to get transaction_num
     try:
         txn_num = next_outbound_transaction_num(movement_col=movement_col)
         ship_from_loc = str(pending[0].get("location", "")).strip().upper()
+        
+        # Add movement_transaction_num to all pending transactions
+        for p in pending:
+            p["movement_transaction_num"] = txn_num
+        
+        # Record transactions after inventory succeeded
+        transactions_col.insert_many([p.copy() for p in pending])
+        
         mv = build_movement_doc(
             movement_type="outbound",
             transaction_num=txn_num,
@@ -384,9 +389,8 @@ def confirm_outbound_load_session(*, inventory_col, transactions_col, movement_c
     except Exception as e:
         st.session_state.outbound_load_last_msg = (
             "error",
-            f"Session confirmed, but movement write failed: {e}",
+            f"Session confirmation failed: {e}",
         )
-        st.session_state.outbound_load_confirmed = True
         return
 
     st.session_state.outbound_load_confirmed = True

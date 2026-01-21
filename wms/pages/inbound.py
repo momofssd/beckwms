@@ -155,31 +155,31 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                     name2 = str(
                         mm_doc.get("product_name") or mm_doc.get("name") or ""
                     ).strip().upper()
-                    inventory_col.update_one(
-                        {"sku": sku2, "location": loc2},
-                        {
-                            "$set": {"product_name": name2},
-                            "$inc": {"quantity": int(qty2)},
-                        },
-                        upsert=True,
-                    )
-                    transactions_col.insert_one(
-                        {
-                            "timestamp": datetime.now(),
-                            "sku": sku2,
-                            "product_name": name2,
-                            "location": loc2,
-                            "type": "inbound",
-                            "inbound_qty": int(qty2),
-                        }
-                    )
-
-                    # Movement logging
-                    # NOTE: If this fails, we still want the inbound itself to succeed,
-                    # but we should surface the error so it can be fixed (otherwise
-                    # transaction_num will appear "stuck").
+                    # Movement logging first to get transaction_num
                     try:
                         txn_num = next_inbound_transaction_num(movement_col=movement_col)
+                        
+                        inventory_col.update_one(
+                            {"sku": sku2, "location": loc2},
+                            {
+                                "$set": {"product_name": name2},
+                                "$inc": {"quantity": int(qty2)},
+                            },
+                            upsert=True,
+                        )
+                        
+                        transactions_col.insert_one(
+                            {
+                                "timestamp": datetime.now(),
+                                "sku": sku2,
+                                "product_name": name2,
+                                "location": loc2,
+                                "type": "inbound",
+                                "inbound_qty": int(qty2),
+                                "movement_transaction_num": txn_num,
+                            }
+                        )
+
                         mv = build_movement_doc(
                             movement_type="inbound",
                             transaction_num=txn_num,
@@ -193,15 +193,17 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                                     "location": loc2,
                                     "type": "inbound",
                                     "inbound_qty": int(qty2),
+                                    "movement_transaction_num": txn_num,
                                 }
                             ],
                         )
                         movement_col.insert_one(mv)
                     except Exception as e:
-                        st.warning(
-                            "Inbound succeeded, but Movement logging failed. "
-                            f"(transaction_num may not increment) Error: {e}"
+                        st.error(
+                            "Inbound failed. Movement logging error: "
+                            f"{e}"
                         )
+                        return
 
                     # Reset scan flow back to step 1 for the next item.
                     st.session_state.inbound_scan_step = 1
@@ -289,37 +291,40 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                     }
                 sku_aggregates[sku]["qty"] += item["qty"]
             
-            # Write to database
-            details_list = []
-            for sku, data in sku_aggregates.items():
-                inventory_col.update_one(
-                    {"sku": sku, "location": location},
-                    {
-                        "$set": {"product_name": data["product_name"]},
-                        "$inc": {"quantity": data["qty"]},
-                    },
-                    upsert=True,
-                )
-                transactions_col.insert_one({
-                    "timestamp": datetime.now(),
-                    "sku": sku,
-                    "product_name": data["product_name"],
-                    "location": location,
-                    "type": "inbound",
-                    "inbound_qty": data["qty"],
-                })
-                details_list.append({
-                    "timestamp": datetime.now(),
-                    "sku": sku,
-                    "product_name": data["product_name"],
-                    "location": location,
-                    "type": "inbound",
-                    "inbound_qty": data["qty"],
-                })
-            
-            # Movement logging
+            # Movement logging first to get transaction_num
             try:
                 txn_num = next_inbound_transaction_num(movement_col=movement_col)
+                
+                # Write to database
+                details_list = []
+                for sku, data in sku_aggregates.items():
+                    inventory_col.update_one(
+                        {"sku": sku, "location": location},
+                        {
+                            "$set": {"product_name": data["product_name"]},
+                            "$inc": {"quantity": data["qty"]},
+                        },
+                        upsert=True,
+                    )
+                    transactions_col.insert_one({
+                        "timestamp": datetime.now(),
+                        "sku": sku,
+                        "product_name": data["product_name"],
+                        "location": location,
+                        "type": "inbound",
+                        "inbound_qty": data["qty"],
+                        "movement_transaction_num": txn_num,
+                    })
+                    details_list.append({
+                        "timestamp": datetime.now(),
+                        "sku": sku,
+                        "product_name": data["product_name"],
+                        "location": location,
+                        "type": "inbound",
+                        "inbound_qty": data["qty"],
+                        "movement_transaction_num": txn_num,
+                    })
+                
                 total_qty = sum(d["qty"] for d in sku_aggregates.values())
                 mv = build_movement_doc(
                     movement_type="inbound",
@@ -330,10 +335,11 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                 )
                 movement_col.insert_one(mv)
             except Exception as e:
-                st.warning(
-                    "Inbound succeeded, but Movement logging failed. "
-                    f"(transaction_num may not increment) Error: {e}"
+                st.error(
+                    "Inbound failed. Movement logging error: "
+                    f"{e}"
                 )
+                return
             
             st.session_state.inbound_single_last_msg = (
                 "success",
@@ -506,30 +512,33 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                         name_n = str(
                             mm_doc.get("product_name") or mm_doc.get("name") or ""
                         ).strip().upper()
-                        inventory_col.update_one(
-                            {"sku": sku_n, "location": loc_n},
-                            {
-                                "$set": {"product_name": name_n},
-                                "$inc": {"quantity": int(qty)},
-                            },
-                            upsert=True,
-                        )
-                        transactions_col.insert_one(
-                            {
-                                "timestamp": datetime.now(),
-                                "sku": sku_n,
-                                "product_name": name_n,
-                                "location": loc_n,
-                                "type": "inbound",
-                                "inbound_qty": int(qty),
-                            }
-                        )
-
-                        # Movement logging
+                        
+                        # Movement logging first to get transaction_num
                         try:
                             txn_num = next_inbound_transaction_num(
                                 movement_col=movement_col
                             )
+                            
+                            inventory_col.update_one(
+                                {"sku": sku_n, "location": loc_n},
+                                {
+                                    "$set": {"product_name": name_n},
+                                    "$inc": {"quantity": int(qty)},
+                                },
+                                upsert=True,
+                            )
+                            transactions_col.insert_one(
+                                {
+                                    "timestamp": datetime.now(),
+                                    "sku": sku_n,
+                                    "product_name": name_n,
+                                    "location": loc_n,
+                                    "type": "inbound",
+                                    "inbound_qty": int(qty),
+                                    "movement_transaction_num": txn_num,
+                                }
+                            )
+
                             mv = build_movement_doc(
                                 movement_type="inbound",
                                 transaction_num=txn_num,
@@ -543,17 +552,18 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                                         "location": loc_n,
                                         "type": "inbound",
                                         "inbound_qty": int(qty),
+                                        "movement_transaction_num": txn_num,
                                     }
                                 ],
                             )
                             movement_col.insert_one(mv)
+                            st.success(f"Entry Successful: {qty} units of {sku_n}")
+                            st.rerun()
                         except Exception as e:
-                            st.warning(
-                                "Entry succeeded, but Movement logging failed. "
-                                f"(transaction_num may not increment) Error: {e}"
+                            st.error(
+                                "Entry failed. Movement logging error: "
+                                f"{e}"
                             )
-                        st.success(f"Entry Successful: {qty} units of {sku_n}")
-                        st.rerun()
 
     st.divider()
     st.subheader("Current Inventory Status")

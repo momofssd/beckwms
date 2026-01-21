@@ -6,9 +6,10 @@ import pandas as pd
 import streamlit as st
 
 from wms.timezone_utils import utc_to_central
+from wms.movement_delete import delete_movement_with_transactions
 
 
-def render(*, movement_col, mm_col) -> None:
+def render(*, movement_col, mm_col, inventory_col, transactions_col) -> None:
     st.title("Movements")
     st.caption("Session-level movement documents (inbound/outbound/void)")
 
@@ -318,6 +319,42 @@ def render(*, movement_col, mm_col) -> None:
     if not selected_mv:
         st.warning(f"No movement found for transaction_num={selected_txn}")
         return
+    
+    # Add delete button for admin users
+    user_role = (st.session_state.get("user_role") or "").strip().lower()
+    if user_role == "admin":
+        st.warning("⚠️ **Admin Action**: Delete this movement will reverse all inventory changes and remove related transactions.")
+        
+        col_delete_1, col_delete_2, col_delete_3 = st.columns([1, 1, 2])
+        if col_delete_1.button("🗑️ Delete Movement", type="secondary", use_container_width=True):
+            st.session_state.confirm_delete_movement = selected_txn
+            st.rerun()
+        
+        # Confirmation dialog
+        if st.session_state.get("confirm_delete_movement") == selected_txn:
+            col_delete_2.markdown("**Confirm deletion?**")
+            col_confirm_1, col_confirm_2 = col_delete_2.columns(2)
+            
+            if col_confirm_1.button("✅ Yes", type="primary", key="confirm_yes"):
+                success, message = delete_movement_with_transactions(
+                    movement_col=movement_col,
+                    transactions_col=transactions_col,
+                    inventory_col=inventory_col,
+                    transaction_num=selected_txn,
+                )
+                if success:
+                    st.success(message)
+                    del st.session_state.confirm_delete_movement
+                    st.rerun()
+                else:
+                    st.error(message)
+                    del st.session_state.confirm_delete_movement
+            
+            if col_confirm_2.button("❌ No", key="confirm_no"):
+                del st.session_state.confirm_delete_movement
+                st.rerun()
+        
+        st.divider()
 
     details = (selected_mv or {}).get("details") or []
     if not isinstance(details, list) or len(details) == 0:

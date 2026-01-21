@@ -114,22 +114,24 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
                 row = df_display.iloc[row_idx].to_dict()
                 current_qty = int(row.get("quantity", 0) or 0)
                 if current_qty > 0:
-                    tx_doc = {
-                        "timestamp": datetime.now(),
-                        "sku": str(row.get("sku", "")).strip().upper(),
-                        "product_name": str(row.get("product_name", "")).strip().upper(),
-                        "location": str(row.get("location", "")).strip().upper(),
-                        "type": "void",
-                        "void_qty": int(current_qty),
-                        "reason": "Inventory Editor delete -> void to zero",
-                    }
-                    transactions_col.insert_one(
-                        tx_doc
-                    )
-
-                    # Movement doc (void)
+                    # Movement doc (void) - get transaction_num first
                     try:
                         txn_num = next_void_transaction_num(movement_col=movement_col)
+                        
+                        tx_doc = {
+                            "timestamp": datetime.now(),
+                            "sku": str(row.get("sku", "")).strip().upper(),
+                            "product_name": str(row.get("product_name", "")).strip().upper(),
+                            "location": str(row.get("location", "")).strip().upper(),
+                            "type": "void",
+                            "void_qty": int(current_qty),
+                            "reason": "Inventory Editor delete -> void to zero",
+                            "movement_transaction_num": txn_num,
+                        }
+                        transactions_col.insert_one(
+                            tx_doc
+                        )
+
                         mv = build_movement_doc(
                             movement_type="void",
                             transaction_num=txn_num,
@@ -165,22 +167,24 @@ def render(*, inventory_col, transactions_col, movement_col) -> None:
                 # If qty was reduced, log it as a VOID transaction (audit trail).
                 reduced_by = old_qty - new_qty
                 if reduced_by > 0:
-                    tx_doc = {
-                        "timestamp": datetime.now(),
-                        "sku": str(current_row.get("sku", "")).strip().upper(),
-                        "product_name": str(current_row.get("product_name", "")).strip().upper(),
-                        "location": str(current_row.get("location", "")).strip().upper(),
-                        "type": "void",
-                        "void_qty": int(reduced_by),
-                        "reason": "Inventory Editor quantity reduction",
-                    }
-                    transactions_col.insert_one(
-                        tx_doc
-                    )
-
-                    # Movement doc (void)
+                    # Movement doc (void) - get transaction_num first
                     try:
                         txn_num = next_void_transaction_num(movement_col=movement_col)
+                        
+                        tx_doc = {
+                            "timestamp": datetime.now(),
+                            "sku": str(current_row.get("sku", "")).strip().upper(),
+                            "product_name": str(current_row.get("product_name", "")).strip().upper(),
+                            "location": str(current_row.get("location", "")).strip().upper(),
+                            "type": "void",
+                            "void_qty": int(reduced_by),
+                            "reason": "Inventory Editor quantity reduction",
+                            "movement_transaction_num": txn_num,
+                        }
+                        transactions_col.insert_one(
+                            tx_doc
+                        )
+
                         mv = build_movement_doc(
                             movement_type="void",
                             transaction_num=txn_num,

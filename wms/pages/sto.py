@@ -169,14 +169,19 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
                 upsert=True,
             )
 
-            # Write transactions (outbound+inbound style)
-            transactions_col.insert_many([outbound_tx, inbound_tx])
-
-            # Write STO movement document
+            # Write STO movement document first to get transaction_num
             sto_transaction_num = None
             try:
                 txn_num = next_sto_transaction_num(movement_col=movement_col)
                 sto_transaction_num = txn_num
+                
+                # Add movement_transaction_num to both transactions
+                outbound_tx["movement_transaction_num"] = txn_num
+                inbound_tx["movement_transaction_num"] = txn_num
+                
+                # Write transactions (outbound+inbound style)
+                transactions_col.insert_many([outbound_tx, inbound_tx])
+                
                 mv = build_movement_doc(
                     movement_type="sto",
                     transaction_num=txn_num,
@@ -192,6 +197,7 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
                             "location_to": to_loc_n,
                             "type": "sto",
                             "shipment_id": shipment_id,
+                            "movement_transaction_num": txn_num,
                         }
                     ],
                 )
@@ -201,7 +207,8 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
                 }
                 movement_col.insert_one(mv)
             except Exception as e:
-                st.warning(f"STO completed, but movement logging failed: {e}")
+                st.error(f"STO failed. Movement logging error: {e}")
+                return
 
             # Store completion details in session state to display outside the form
             st.session_state.sto_completion = {

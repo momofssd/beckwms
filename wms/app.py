@@ -254,6 +254,11 @@ def run() -> None:
             locations_col=locations_col,
         )
     elif st.session_state.page == "movements":
-        movements_page.render(movement_col=movement_col, mm_col=mm_col)
+        movements_page.render(
+            movement_col=movement_col,
+            mm_col=mm_col,
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+        )
     elif st.session_state.page == "shipment_tracking":
         shipment_tracking_page.render()
