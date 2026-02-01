@@ -350,7 +350,72 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
             st.info("No outbound transactions with shipment IDs found in filtered results.")
         st.divider()
 
+    # --- Calculate Total Charge ---
+    total_charge = 0.0
+    
+    # Calculate fulfillment charge (outbound with missing 'To' location) - $2 per qty
+    fulfillment_qty = 0
+    if "type" in df_filtered.columns and "location_to" in df_filtered.columns and "qty" in df_filtered.columns:
+        is_outbound = df_filtered["type"].astype(str).str.lower().eq("outbound")
+        is_none_to = (
+            df_filtered["location_to"].isna() | 
+            df_filtered["location_to"].astype(str).str.strip().eq("") | 
+            df_filtered["location_to"].astype(str).str.lower().eq("none")
+        )
+        fulfillment_mask = is_outbound & is_none_to
+        # Sum qty (which is negative for outbound), convert to positive by multiplying by -1
+        fulfillment_qty = abs(df_filtered.loc[fulfillment_mask, "qty"].sum())
+        total_charge += fulfillment_qty * 2  # $2 per qty
+    
+    # Calculate FBA (Amazon) charge - $0.50 per qty
+    amazon = "AMAZON"
+    fba_qty = 0
+    if "location" in df_filtered.columns and "qty" in df_filtered.columns:
+        df_filtered_copy = df_filtered.copy()
+        df_filtered_copy["location"] = df_filtered_copy["location"].astype(str).str.strip().str.upper()
+        location_is_amazon = df_filtered_copy["location"].eq(amazon)
+        
+        if "location_from" in df_filtered_copy.columns:
+            df_filtered_copy["location_from"] = df_filtered_copy["location_from"].astype(str).str.strip().str.upper()
+            location_from_is_amazon = df_filtered_copy["location_from"].eq(amazon)
+        else:
+            location_from_is_amazon = False
+            
+        if "location_to" in df_filtered_copy.columns:
+            df_filtered_copy["location_to"] = df_filtered_copy["location_to"].astype(str).str.strip().str.upper()
+            location_to_is_amazon = df_filtered_copy["location_to"].eq(amazon)
+        else:
+            location_to_is_amazon = False
+        
+        # Any transaction involving Amazon location
+        is_amazon_transaction = location_is_amazon | location_from_is_amazon | location_to_is_amazon
+        
+        # Apply reason filter if available
+        if "reason" in df_filtered_copy.columns:
+            df_filtered_copy["reason"] = df_filtered_copy["reason"].astype(str).str.strip().str.upper()
+            reason_is_in = df_filtered_copy["reason"].eq("STO TRANSFER IN")
+            reason_is_out = df_filtered_copy["reason"].eq("STO TRANSFER OUT")
+            
+            # Only count if it matches the FBA logic
+            fba_mask = is_amazon_transaction & (
+                (reason_is_in & ~location_from_is_amazon) | 
+                (reason_is_out & location_from_is_amazon)
+            )
+            fba_qty = abs(df_filtered_copy.loc[fba_mask, "qty"].sum())
+        else:
+            fba_qty = abs(df_filtered_copy.loc[is_amazon_transaction, "qty"].sum())
+    
+    total_charge += fba_qty * 0.5  # $0.50 per FBA qty
+    
     # --- Metrics and Display ---
+    # Check user role - only show Total Charge to admin users
+    user_role = (st.session_state.get("user_role") or "").strip().lower()
+    is_admin = user_role == "admin"
+    
+    if is_admin:
+        st.metric("Total Charge", f"${total_charge:,.2f}", 
+                  help=f"Fulfillment: {int(fulfillment_qty):,} qty × $2.00 = ${fulfillment_qty * 2:.2f} | FBA: {int(fba_qty):,} qty × $0.50 = ${fba_qty * 0.5:.2f}")
+    
     total_qty = df_filtered["qty"].sum() if "qty" in df_filtered.columns else 0
     st.metric("Total Quantity (Filtered Transactions)", f"{int(total_qty):,}")
 
