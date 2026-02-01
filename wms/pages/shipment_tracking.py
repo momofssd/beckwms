@@ -120,13 +120,11 @@ def render() -> None:
         st.session_state.shipment_uploader_key = 0
     if "label_tracking_page" not in st.session_state:
         st.session_state.label_tracking_page = 0
-    if "label_tracking_numbers" not in st.session_state:
-        st.session_state.label_tracking_numbers = []
 
     if not BARCODE_AVAILABLE:
         st.warning("Barcode scanning unavailable. Install: pip install pyzbar pdf2image pillow")
 
-    label_numbers = st.session_state.label_tracking_numbers
+    label_numbers = st.session_state.get("label_tracking_numbers") or []
 
     header_left, header_right = st.columns([3, 1], gap="medium")
     with header_left:
@@ -135,7 +133,7 @@ def render() -> None:
     
     with header_right:
         if st.button("Reset", use_container_width=True):
-            st.session_state.label_tracking_numbers = []
+            st.session_state.pop("label_tracking_numbers", None)
             st.session_state.label_tracking_page = 0
             st.session_state.shipment_uploader_key += 1
             st.rerun()
@@ -167,11 +165,12 @@ def render() -> None:
     with right_col:
         st.markdown("**Output**")
         if label_numbers:
-            # --- Pagination Logic (Batch of 25) ---
+            # --- Pagination Logic ---
             items_per_page = 25
             total_pages = (len(label_numbers) + items_per_page - 1) // items_per_page
             current_page = st.session_state.label_tracking_page
 
+            # Safety check
             if current_page >= total_pages:
                 current_page = 0
                 st.session_state.label_tracking_page = 0
@@ -182,7 +181,7 @@ def render() -> None:
 
             st.markdown(f"**Batch {current_page + 1} of {total_pages}**")
             
-            # Formatting batch display
+            # Formatting the Code block
             wrapped_lines = []
             current_line = []
             current_length = 0
@@ -216,12 +215,12 @@ def render() -> None:
             if total_pages > 1:
                 p1, p2, p3 = st.columns([1, 2, 1])
                 if current_page > 0:
-                    if p1.button("⬅️ Previous", key="lbl_prev_btn"):
+                    if p1.button("⬅️ Previous", key="label_prev"):
                         st.session_state.label_tracking_page -= 1
                         st.rerun()
-                p2.markdown(f"<p style='text-align: center;'>Batch {current_page + 1} / {total_pages}</p>", unsafe_allow_html=True)
+                p2.markdown(f"<p style='text-align: center;'>Page {current_page + 1}/{total_pages}</p>", unsafe_allow_html=True)
                 if current_page < total_pages - 1:
-                    if p3.button("Next ➡️", key="lbl_next_btn"):
+                    if p3.button("Next ➡️", key="label_next"):
                         st.session_state.label_tracking_page += 1
                         st.rerun()
         else:

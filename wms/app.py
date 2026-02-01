@@ -11,6 +11,9 @@ try:
 except Exception:
     pass
 
+import os
+import pymongo
+
 from wms.auth import require_auth
 from wms.db import get_collections
 from wms.session import ensure_session_state_initialized
@@ -71,6 +74,61 @@ def _reset_shipment_tracking_state() -> None:
     st.session_state.shipment_uploader_key = 0
     st.session_state.label_tracking_page = 0
     st.session_state.label_tracking_numbers = []
+
+
+def clone_database(source_db_name: str, target_db_name: str) -> tuple[bool, str]:
+    """Clone a database from source to target.
+    
+    Args:
+        source_db_name: Name of the source database
+        target_db_name: Name of the target database
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        mongo_uri = os.getenv("MONGO_URI")
+        if not mongo_uri:
+            return False, "MONGO_URI not found in environment variables"
+        
+        client = pymongo.MongoClient(mongo_uri)
+        
+        source_db = client[source_db_name]
+        target_db = client[target_db_name]
+
+        # Get list of all collections in the source database
+        collections = source_db.list_collection_names()
+        
+        if not collections:
+            client.close()
+            return False, f"No collections found in {source_db_name}"
+
+        # Drop the target database first to avoid duplicate key errors
+        client.drop_database(target_db_name)
+        
+        # Re-reference the target database after dropping
+        target_db = client[target_db_name]
+
+        for col_name in collections:
+            # Skip system collections
+            if col_name.startswith("system."):
+                continue
+            
+            # Fetch all documents from the source collection
+            documents = list(source_db[col_name].find())
+            
+            if documents:
+                # Insert documents into the target collection
+                target_db[col_name].insert_many(documents)
+            else:
+                # If collection is empty, just create it
+                target_db.create_collection(col_name)
+
+        client.close()
+        return True, f"Successfully cloned {source_db_name} to {target_db_name}"
+
+    except Exception as e:
+        return False, f"Error cloning database: {str(e)}"
 
 
 def render_sidebar() -> None:
@@ -172,6 +230,18 @@ def render_sidebar() -> None:
         st.session_state.page = "shipment_tracking"
 
     st.sidebar.divider()
+    
+    # Clone Database button (only for admin users)
+    is_admin = (st.session_state.get("user_role") or "").strip().lower() == "admin"
+    if is_admin:
+        if st.sidebar.button("🗂️ Clone Database", use_container_width=True):
+            with st.spinner("Cloning warehouse_db to warehouse_db_copy..."):
+                success, message = clone_database("warehouse_db", "warehouse_db_copy")
+                if success:
+                    st.sidebar.success(message)
+                else:
+                    st.sidebar.error(message)
+    
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.default_location = None
