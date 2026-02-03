@@ -7,6 +7,7 @@ from wms.outbound import confirm_outbound_session, process_scan
 from wms.ui_utils import auto_focus_js, to_excel, sort_locations_custom
 from wms.movement import build_movement_doc, next_outbound_transaction_num
 from wms.ups_tracking_pattern import _extract_tracking_numbers_from_text
+from wms.pages import outbound_consolidated as outbound_consolidated_page
 
 # Barcode scanning imports
 try:
@@ -69,7 +70,7 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
     st.title("Outbound Processing")
     
     # Create tabs
-    tab1, tab2 = st.tabs(["📦 Scan Outbound", "📄 Outbound Load"])
+    tab1, tab2, tab3 = st.tabs(["📦 Scan Outbound", "📄 Outbound Load", "📦 Outbound Consolidated"])
     
     with tab1:
         render_scan_outbound(
@@ -88,6 +89,15 @@ def render(*, inventory_col, transactions_col, movement_col, mm_col, locations_c
             mm_col=mm_col,
             locations_col=locations_col,
             file_ts=file_ts
+        )
+    
+    with tab3:
+        outbound_consolidated_page.render(
+            inventory_col=inventory_col,
+            transactions_col=transactions_col,
+            movement_col=movement_col,
+            mm_col=mm_col,
+            locations_col=locations_col,
         )
 
 
