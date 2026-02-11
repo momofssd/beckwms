@@ -265,7 +265,7 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
     # --- Shipment ID Record Trigger ---
     # We use st.session_state to make the visibility persist across reruns
     col_btn_1, col_btn_2 = st.columns([1, 4])
-    if col_btn_1.button("📋 Shipment ID Record", help="Extract USPS tracking numbers"):
+    if col_btn_1.button("📋 Shipment ID Record", help="Extract USPS tracking numbers with date range and page number"):
         st.session_state.show_shipment_record = True
         st.session_state.shipment_page = 0
     
@@ -276,6 +276,7 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
 
     # Render Record Section if Active
     if st.session_state.show_shipment_record:
+        # Filter outbound transactions
         outbound_df = df_filtered[
             (df_filtered["type"] == "outbound") & 
             (df_filtered["shipment_id"].notna()) & 
@@ -283,16 +284,27 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
         ].copy()
         
         if not outbound_df.empty:
-            shipment_ids = []
-            for sid in outbound_df["shipment_id"].unique():
-                extracted = _extract_tracking_numbers_from_text(str(sid).strip().upper())
+            # Build a list of (tracking_number, timestamp) tuples
+            shipment_data = []
+            for _, row in outbound_df.iterrows():
+                sid = str(row.get("shipment_id", "")).strip().upper()
+                timestamp = row.get("timestamp")
+                extracted = _extract_tracking_numbers_from_text(sid)
                 for tracking in extracted:
-                    if tracking not in shipment_ids:
-                        shipment_ids.append(tracking)
+                    shipment_data.append((tracking, timestamp))
             
-            if shipment_ids:
+            # Remove duplicates while preserving order (keep first occurrence)
+            seen = set()
+            unique_shipment_data = []
+            for tracking, timestamp in shipment_data:
+                if tracking not in seen:
+                    seen.add(tracking)
+                    unique_shipment_data.append((tracking, timestamp))
+            
+            if unique_shipment_data:
                 items_per_page = 25
-                total_pages = (len(shipment_ids) + items_per_page - 1) // items_per_page
+                total_pages = (len(unique_shipment_data) + items_per_page - 1) // items_per_page
+                
                 current_page = st.session_state.shipment_page
                 
                 # Safety check for page bounds
@@ -301,10 +313,23 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
                     st.session_state.shipment_page = 0
 
                 start_idx = current_page * items_per_page
-                end_idx = min(start_idx + items_per_page, len(shipment_ids))
-                current_items = shipment_ids[start_idx:end_idx]
+                end_idx = min(start_idx + items_per_page, len(unique_shipment_data))
+                current_batch = unique_shipment_data[start_idx:end_idx]
                 
-                st.info(f"**USPS Tracking Numbers (Page {current_page + 1}/{total_pages})**")
+                # Extract tracking numbers and timestamps for current page
+                current_items = [item[0] for item in current_batch]
+                current_timestamps = [item[1] for item in current_batch]
+                
+                # Calculate date range for current page
+                valid_timestamps = [ts for ts in current_timestamps if pd.notna(ts)]
+                if valid_timestamps:
+                    min_ts = min(valid_timestamps)
+                    max_ts = max(valid_timestamps)
+                    date_range_str = f"{min_ts.strftime('%Y-%m-%d')} to {max_ts.strftime('%Y-%m-%d')}"
+                else:
+                    date_range_str = "N/A"
+                
+                st.info(f"**USPS Tracking Numbers (Page {current_page + 1}/{total_pages})** | Date Range: {date_range_str}")
                 
                 tracking_list = current_items
                 wrapped_lines = []
@@ -334,14 +359,31 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
                 
                 # Pagination Controls
                 if total_pages > 1:
-                    cp1, cp2, cp3 = st.columns([1, 2, 1])
+                    cp1, cp2, cp3, cp4, cp5 = st.columns([1, 1, 1, 1, 1])
                     if current_page > 0:
                         if cp1.button("⬅️ Previous", key="prev_pg"):
                             st.session_state.shipment_page -= 1
                             st.rerun()
-                    cp2.markdown(f"<p style='text-align: center;'>Page {current_page + 1} of {total_pages}</p>", unsafe_allow_html=True)
+                    
+                    with cp3:
+                        page_number_input = st.number_input(
+                            "Go to Page",
+                            min_value=1,
+                            max_value=total_pages,
+                            value=st.session_state.shipment_page + 1,
+                            step=1,
+                            help="Enter page number to jump to specific page",
+                            label_visibility="collapsed"
+                        )
+                        
+                        # Update page from input if changed
+                        if page_number_input - 1 != st.session_state.shipment_page:
+                            if 0 <= page_number_input - 1 < total_pages:
+                                st.session_state.shipment_page = page_number_input - 1
+                                st.rerun()
+                    
                     if current_page < total_pages - 1:
-                        if cp3.button("Next ➡️", key="next_pg"):
+                        if cp5.button("Next ➡️", key="next_pg"):
                             st.session_state.shipment_page += 1
                             st.rerun()
             else:
