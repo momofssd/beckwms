@@ -365,6 +365,8 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col) -> None:
                             st.session_state.shipment_page -= 1
                             st.rerun()
                     
+                    cp2.markdown(f"<p style='text-align: center; margin-top: 8px;'>Page {current_page + 1}/{total_pages}</p>", unsafe_allow_html=True)
+                    
                     with cp3:
                         page_number_input = st.number_input(
                             "Go to Page",
