@@ -22,6 +22,13 @@ def render(*, mm_col, locations_col) -> None:
         st.subheader("Materials (MM)")
         st.caption("Inbound requires SKU to exist here.")
 
+        if "master_data_mm_last_msg" in st.session_state:
+            msg_t, msg_x = st.session_state.master_data_mm_last_msg
+            if msg_t == "success":
+                st.success(msg_x)
+            elif msg_t == "error":
+                st.error(msg_x)
+
         user_role = (st.session_state.get("user_role") or "").strip().lower()
         is_admin = user_role == "admin"
         is_customer = user_role == "customer"
@@ -61,7 +68,10 @@ def render(*, mm_col, locations_col) -> None:
                         },
                         upsert=True,
                     )
-                    st.success(f"Saved material: {sku_n} - {name_n}")
+                    st.session_state.master_data_mm_last_msg = (
+                        "success",
+                        f"Saved material: {sku_n} - {name_n}",
+                    )
                     st.rerun()
 
         mm_list = list(mm_col.find({}, {"_id": 0}).sort("sku", 1))
@@ -127,12 +137,22 @@ def render(*, mm_col, locations_col) -> None:
                             {"$set": {"active": bool(r["active_new"]), "updated_at": now}},
                             upsert=False,
                         )
-                    st.success(f"Saved {len(changes)} change(s).")
+                    st.session_state.master_data_mm_last_msg = (
+                        "success",
+                        f"Saved {len(changes)} change(s).",
+                    )
                     st.rerun()
 
     with tab_loc:
         st.subheader("Locations")
         st.caption("Used for inbound/outbound location selection.")
+
+        if "master_data_loc_last_msg" in st.session_state:
+            msg_t, msg_x = st.session_state.master_data_loc_last_msg
+            if msg_t == "success":
+                st.success(msg_x)
+            elif msg_t == "error":
+                st.error(msg_x)
 
         user_role = (st.session_state.get("user_role") or "").strip().lower()
         is_admin = user_role == "admin"
@@ -171,7 +191,10 @@ def render(*, mm_col, locations_col) -> None:
                         },
                         upsert=True,
                     )
-                    st.success(f"Saved location: {loc_n}")
+                    st.session_state.master_data_loc_last_msg = (
+                        "success",
+                        f"Saved location: {loc_n}",
+                    )
                     st.rerun()
 
         loc_list = list(
@@ -223,5 +246,8 @@ def render(*, mm_col, locations_col) -> None:
                             {"$set": {"active": bool(r["active_new"]), "updated_at": now}},
                             upsert=False,
                         )
-                    st.success(f"Saved {len(changes)} change(s).")
+                    st.session_state.master_data_loc_last_msg = (
+                        "success",
+                        f"Saved {len(changes)} change(s).",
+                    )
                     st.rerun()

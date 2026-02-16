@@ -38,6 +38,13 @@ def _reset_inbound_state() -> None:
     st.session_state.inbound_single_session_active = False
     st.session_state.inbound_single_location = None
     st.session_state.inbound_single_last_msg = (None, None)
+    st.session_state.pop("inbound_manual_last_msg", None)
+
+
+def _reset_master_data_state() -> None:
+    """Reset all master data-related session state."""
+    st.session_state.pop("master_data_mm_last_msg", None)
+    st.session_state.pop("master_data_loc_last_msg", None)
 
 
 def _reset_outbound_state() -> None:
@@ -188,6 +195,7 @@ def render_sidebar() -> None:
 
     if st.sidebar.button("Inventory Dashboard", use_container_width=True):
         _reset_inbound_state()
+        _reset_master_data_state()
         _reset_outbound_state()
         _reset_transactions_state()
         st.session_state.page = "home"
@@ -196,35 +204,43 @@ def render_sidebar() -> None:
     if not is_customer:
         if st.sidebar.button("Master Data", use_container_width=True):
             _reset_inbound_state()
+            _reset_master_data_state()
             _reset_outbound_state()
             _reset_transactions_state()
             st.session_state.page = "master_data"
         if st.sidebar.button("Inbound Entry", use_container_width=True):
+            _reset_inbound_state() # Added back to clear scan details if switch to inbound
+            _reset_master_data_state()
             _reset_outbound_state()
             _reset_transactions_state()
             st.session_state.page = "inbound"
         if st.sidebar.button("Outbound Processing", use_container_width=True):
             _reset_inbound_state()
+            _reset_master_data_state()
             _reset_outbound_load_state()
             _reset_transactions_state()
             st.session_state.page = "outbound"
         if st.sidebar.button("STO", use_container_width=True):
             _reset_inbound_state()
+            _reset_master_data_state()
             _reset_outbound_state()
             _reset_transactions_state()
             st.session_state.page = "sto"
     
     if st.sidebar.button("Transactions", use_container_width=True):
         _reset_inbound_state()
+        _reset_master_data_state()
         _reset_outbound_state()
         st.session_state.page = "transactions"
     if st.sidebar.button("Movements", use_container_width=True):
         _reset_inbound_state()
+        _reset_master_data_state()
         _reset_outbound_state()
         _reset_transactions_state()
         st.session_state.page = "movements"
     if st.sidebar.button("Shipment Tracking", use_container_width=True):
         _reset_inbound_state()
+        _reset_master_data_state()
         _reset_outbound_state()
         _reset_transactions_state()
         st.session_state.page = "shipment_tracking"
@@ -247,6 +263,7 @@ def render_sidebar() -> None:
         st.session_state.default_location = None
         st.session_state.page = "home"
         _reset_inbound_state()
+        _reset_master_data_state()
         _reset_outbound_state()
         _reset_transactions_state()
         _reset_shipment_tracking_state()

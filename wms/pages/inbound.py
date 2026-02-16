@@ -44,7 +44,7 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
         st.session_state.inbound_active_tab = 0
 
     tab_inbound, tab_single, tab_manual = st.tabs(["Inbound Multi Entry", "Inbound Single Entry", "Manual Inbound Entry"])
-
+    
     def _go_to_scan_step_2() -> None:
         """Advance the scan flow to step 2 when the user presses Enter."""
         scanned_local = (st.session_state.get("inbound_scan_sku_input") or "").strip().upper()
@@ -128,89 +128,82 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                     sku2 = (st.session_state.inbound_scanned_sku or "").strip().upper()
                     if not sku2:
                         st.error("Missing scanned SKU. Click Back and rescan.")
-                        return
+                    else:
+                        mm_doc = mm_col.find_one(
+                            {"sku": sku2},
+                            {"_id": 0, "sku": 1, "product_name": 1, "name": 1, "active": 1},
+                        )
+                        if not mm_doc:
+                            st.error(
+                                f"SKU {sku2} is not registered in Material Master (MM). "
+                                "Please create it first under Master Data."
+                            )
+                        elif not mm_doc.get("active", True):
+                            # Check if SKU is active
+                            st.error(
+                                f"SKU {sku2} is deactivated. Please activate it in Master Data before inbound."
+                            )
+                        elif not loc2:
+                            st.error("Location is required.")
+                        else:
+                            name2 = str(
+                                mm_doc.get("product_name") or mm_doc.get("name") or ""
+                            ).strip().upper()
+                            # Movement logging first to get transaction_num
+                            try:
+                                txn_num = next_inbound_transaction_num(movement_col=movement_col)
+                                
+                                inventory_col.update_one(
+                                    {"sku": sku2, "location": loc2},
+                                    {
+                                        "$set": {"product_name": name2},
+                                        "$inc": {"quantity": int(qty2)},
+                                    },
+                                    upsert=True,
+                                )
+                                
+                                transactions_col.insert_one(
+                                    {
+                                        "timestamp": datetime.now(),
+                                        "sku": sku2,
+                                        "product_name": name2,
+                                        "location": loc2,
+                                        "type": "inbound",
+                                        "inbound_qty": int(qty2),
+                                        "movement_transaction_num": txn_num,
+                                    }
+                                )
 
-                    mm_doc = mm_col.find_one(
-                        {"sku": sku2},
-                        {"_id": 0, "sku": 1, "product_name": 1, "name": 1, "active": 1},
-                    )
-                    if not mm_doc:
-                        st.error(
-                            f"SKU {sku2} is not registered in Material Master (MM). "
-                            "Please create it first under Master Data."
-                        )
-                        return
-                    
-                    # Check if SKU is active
-                    if not mm_doc.get("active", True):
-                        st.error(
-                            f"SKU {sku2} is deactivated. Please activate it in Master Data before inbound."
-                        )
-                        return
-
-                    if not loc2:
-                        st.error("Location is required.")
-                        return
-
-                    name2 = str(
-                        mm_doc.get("product_name") or mm_doc.get("name") or ""
-                    ).strip().upper()
-                    # Movement logging first to get transaction_num
-                    try:
-                        txn_num = next_inbound_transaction_num(movement_col=movement_col)
-                        
-                        inventory_col.update_one(
-                            {"sku": sku2, "location": loc2},
-                            {
-                                "$set": {"product_name": name2},
-                                "$inc": {"quantity": int(qty2)},
-                            },
-                            upsert=True,
-                        )
-                        
-                        transactions_col.insert_one(
-                            {
-                                "timestamp": datetime.now(),
-                                "sku": sku2,
-                                "product_name": name2,
-                                "location": loc2,
-                                "type": "inbound",
-                                "inbound_qty": int(qty2),
-                                "movement_transaction_num": txn_num,
-                            }
-                        )
-
-                        mv = build_movement_doc(
-                            movement_type="inbound",
-                            transaction_num=txn_num,
-                            qty=int(qty2),
-                            location=loc2,
-                            details=[
-                                {
-                                    "timestamp": datetime.now(),
-                                    "sku": sku2,
-                                    "product_name": name2,
-                                    "location": loc2,
-                                    "type": "inbound",
-                                    "inbound_qty": int(qty2),
-                                    "movement_transaction_num": txn_num,
-                                }
-                            ],
-                        )
-                        movement_col.insert_one(mv)
-                    except Exception as e:
-                        st.error(
-                            "Inbound failed. Movement logging error: "
-                            f"{e}"
-                        )
-                        return
-
-                    # Reset scan flow back to step 1 for the next item.
-                    st.session_state.inbound_scan_step = 1
-                    st.session_state.inbound_scanned_sku = ""
-                    st.session_state.inbound_scan_sku_input = ""
-                    st.success(f"Inbound Successful: {qty2} units of {sku2}")
-                    st.rerun()
+                                mv = build_movement_doc(
+                                    movement_type="inbound",
+                                    transaction_num=txn_num,
+                                    qty=int(qty2),
+                                    location=loc2,
+                                    details=[
+                                        {
+                                            "timestamp": datetime.now(),
+                                            "sku": sku2,
+                                            "product_name": name2,
+                                            "location": loc2,
+                                            "type": "inbound",
+                                            "inbound_qty": int(qty2),
+                                            "movement_transaction_num": txn_num,
+                                        }
+                                    ],
+                                )
+                                movement_col.insert_one(mv)
+                                
+                                # Reset scan flow back to step 1 for the next item.
+                                st.session_state.inbound_scan_step = 1
+                                st.session_state.inbound_scanned_sku = ""
+                                st.session_state.inbound_scan_sku_input = ""
+                                st.success(f"Inbound Successful: {qty2} units of {sku2}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(
+                                    "Inbound failed. Movement logging error: "
+                                    f"{e}"
+                                )
 
     with tab_single:
         st.subheader("Inbound Single Entry")
@@ -360,21 +353,20 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                     details=details_list,
                 )
                 movement_col.insert_one(mv)
+                
+                st.session_state.inbound_single_last_msg = (
+                    "success",
+                    f"Session confirmed! {len(sku_aggregates)} unique SKU(s) submitted."
+                )
+                # Reset session
+                st.session_state.inbound_single_session_log = []
+                st.session_state.inbound_single_session_active = False
+                st.session_state.inbound_single_location = None
             except Exception as e:
                 st.error(
                     "Inbound failed. Movement logging error: "
                     f"{e}"
                 )
-                return
-            
-            st.session_state.inbound_single_last_msg = (
-                "success",
-                f"Session confirmed! {len(sku_aggregates)} unique SKU(s) submitted."
-            )
-            # Reset session
-            st.session_state.inbound_single_session_log = []
-            st.session_state.inbound_single_session_active = False
-            st.session_state.inbound_single_location = None
 
         # Layout: Left column for scanning, Right column for session log
         # On mobile, stack vertically; on desktop, side-by-side
@@ -501,6 +493,13 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
 
     with tab_manual:
         st.subheader("Manual Inbound Entry")
+        if "inbound_manual_last_msg" in st.session_state:
+            msg_t, msg_x = st.session_state.inbound_manual_last_msg
+            if msg_t == "success":
+                st.success(msg_x)
+            elif msg_t == "error":
+                st.error(msg_x)
+
         with st.form("inbound_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             if sku_options:
@@ -583,13 +582,17 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
                                 ],
                             )
                             movement_col.insert_one(mv)
-                            st.success(f"Entry Successful: {qty} units of {sku_n}")
+                            st.session_state.inbound_manual_last_msg = (
+                                "success",
+                                f"Entry Successful: {qty} units of {sku_n}",
+                            )
                             st.rerun()
                         except Exception as e:
-                            st.error(
-                                "Entry failed. Movement logging error: "
-                                f"{e}"
+                            st.session_state.inbound_manual_last_msg = (
+                                "error",
+                                f"Entry failed. Movement logging error: {e}",
                             )
+                            st.rerun()
 
     st.divider()
     st.subheader("Current Inventory Status")
