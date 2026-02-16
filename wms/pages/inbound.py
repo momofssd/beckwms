@@ -227,45 +227,71 @@ def render(*, inventory_col, transactions_col, mm_col, locations_col, movement_c
 
         def _process_single_scan() -> None:
             """Process a scanned SKU in single entry mode."""
-            scanned = (st.session_state.get("inbound_single_scan_input") or "").strip().upper()
-            if not scanned:
+            raw_scanned = (st.session_state.get("inbound_single_scan_input") or "").strip().upper()
+            if not raw_scanned:
                 return
             
-            # Validate SKU exists in master data and is active
-            mm_doc = mm_col.find_one(
-                {"sku": scanned},
-                {"_id": 0, "sku": 1, "product_name": 1, "name": 1, "active": 1},
-            )
-            if not mm_doc:
-                st.session_state.inbound_single_last_msg = (
-                    "error",
-                    f"SKU {scanned} is not registered in Material Master. Please create it first."
-                )
-                st.session_state.inbound_single_scan_input = ""
-                return
+            # Pre-load SKUs if not already done
+            if "inbound_sku_map" not in st.session_state:
+                try:
+                    active_skus = list(mm_col.find({"active": True}, {"_id": 0, "sku": 1, "product_name": 1, "name": 1}))
+                    st.session_state.inbound_sku_map = {
+                        str(d.get("sku", "")).strip().upper(): str(d.get("product_name") or d.get("name") or "").strip().upper()
+                        for d in active_skus if d.get("sku")
+                    }
+                except Exception:
+                    st.session_state.inbound_sku_map = {}
+
+            sku_map = st.session_state.inbound_sku_map
             
-            # Check if SKU is active
-            if not mm_doc.get("active", True):
-                st.session_state.inbound_single_last_msg = (
-                    "error",
-                    f"SKU {scanned} is deactivated. Please activate it in Master Data before inbound."
-                )
-                st.session_state.inbound_single_scan_input = ""
-                return
+            # Function to find valid SKUs in the input (handles multiple scans in one input)
+            def extract_skus(input_str):
+                found = []
+                remaining = input_str
+                while remaining:
+                    # Try to find the longest matching SKU starting from the beginning
+                    match = None
+                    for length in range(len(remaining), 0, -1):
+                        candidate = remaining[:length]
+                        if candidate in sku_map:
+                            match = candidate
+                            break
+                    
+                    if match:
+                        found.append(match)
+                        remaining = remaining[len(match):].strip()
+                    else:
+                        # No match found at the start, skip one character and try again (or handle as error)
+                        # For WMS, we usually expect clean scans, so if no match, we might have an invalid SKU
+                        # Let's try to see if there's any valid SKU later in the string
+                        # but for now, let's just take the first part as invalid if no match at all
+                        if not found:
+                            return [input_str] # Return original for error reporting
+                        break
+                return found
+
+            scanned_list = extract_skus(raw_scanned)
             
-            # Add to session log
-            product_name = str(mm_doc.get("product_name") or mm_doc.get("name") or "").strip().upper()
-            st.session_state.inbound_single_session_log.append({
-                "timestamp": datetime.now(),
-                "sku": scanned,
-                "product_name": product_name,
-                "qty": 1,
-            })
-            st.session_state.inbound_single_last_msg = ("success", f"Scanned: {scanned}")
-            
-            # Store scanned value for audio playback after rerun
-            if st.session_state.get("audio_enabled", False):
-                st.session_state.inbound_single_audio_pending = scanned
+            for scanned in scanned_list:
+                if scanned in sku_map:
+                    # Add to session log
+                    product_name = sku_map[scanned]
+                    st.session_state.inbound_single_session_log.append({
+                        "timestamp": datetime.now(),
+                        "sku": scanned,
+                        "product_name": product_name,
+                        "qty": 1,
+                    })
+                    st.session_state.inbound_single_last_msg = ("success", f"Scanned: {scanned}")
+                    
+                    # Store scanned value for audio playback after rerun
+                    if st.session_state.get("audio_enabled", False):
+                        st.session_state.inbound_single_audio_pending = scanned
+                else:
+                    st.session_state.inbound_single_last_msg = (
+                        "error",
+                        f"SKU {scanned} is not registered or deactivated."
+                    )
             
             st.session_state.inbound_single_scan_input = ""
 

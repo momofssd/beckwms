@@ -31,7 +31,7 @@ def play_last_4_digits(text: str, enabled: bool = True) -> None:
             // Small delay to avoid interfering with Streamlit reruns
             setTimeout(function() {{
                 const utterance = new SpeechSynthesisUtterance('{last_4}');
-                utterance.rate = 0.8;  // Slightly slower for clarity
+                utterance.rate = 1.5;  // Faster for efficiency
                 utterance.pitch = 1.0;
                 utterance.volume = 1.0;
                 
@@ -41,7 +41,7 @@ def play_last_4_digits(text: str, enabled: bool = True) -> None:
                 
                 window.speechSynthesis.cancel();  // Cancel any ongoing speech
                 window.speechSynthesis.speak(utterance);
-            }}, 100);
+            }}, 10);
         }}
     }})();
     </script>
